@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -106,7 +108,20 @@ func Parse(data []byte) (Config, error) {
 	if err := validate(cfg); err != nil {
 		return Config{}, err
 	}
+	cfg.Store.Path = expandHome(cfg.Store.Path)
 	return cfg, nil
+}
+
+// expandHome replaces a leading ~ with the current user's home directory.
+func expandHome(path string) string {
+	if !strings.HasPrefix(path, "~") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, path[1:])
 }
 
 // validate checks that required fields are populated.
