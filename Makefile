@@ -99,8 +99,8 @@ ifeq ($(shell uname),Darwin)
 	@codesign -s - -f $(BINARY) 2>/dev/null || true
 endif
 
-## install: Build and install agenthub to INSTALL_DIR (default: GOPATH/bin)
-install: build
+## install: Install all deps, build, and copy agenthub to INSTALL_DIR (default: GOPATH/bin)
+install: deps build
 	@echo "Installing agenthub to $(INSTALL_DIR)..."
 	@mkdir -p "$(INSTALL_DIR)"
 	cp $(BINARY) "$(INSTALL_DIR)/agenthub"
