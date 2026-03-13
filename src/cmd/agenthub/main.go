@@ -217,7 +217,7 @@ func cmdServe(_ []string) error {
 }
 
 // cmdServeSetupMode starts the server in first-run setup mode (no store, no dolt).
-func cmdServeSetupMode(cfg config.Config, tmpl *template.Template) error {
+func cmdServeSetupMode(cfg config.Config, tmpl map[string]*template.Template) error {
 	// Placeholder auth — login always fails in setup mode (setup page is public).
 	authMgr := auth.NewManager([]byte("setup-placeholder-32-bytes-pad!!"), nil, cfg.Server.SessionCookieName)
 
@@ -329,12 +329,30 @@ func cmdSetup(_ []string) error {
 	return nil
 }
 
-func loadTemplates() (*template.Template, error) {
+// loadTemplates builds a per-page template map. Each entry is the layout
+// template parsed together with one page file so that {{define "title"}} and
+// {{define "content"}} in each page override the layout's {{block}} defaults
+// independently — preventing the last-parsed file from winning for all pages.
+func loadTemplates() (map[string]*template.Template, error) {
 	sub, err := fs.Sub(agenthub.Templates, "web/templates")
 	if err != nil {
 		return nil, err
 	}
-	return template.ParseFS(sub, "*.html")
+	pages := []string{
+		"login.html", "setup.html", "dashboard.html",
+		"bots.html", "kanban.html", "secrets.html",
+	}
+	out := make(map[string]*template.Template, len(pages)+1)
+	for _, page := range pages {
+		t, err := template.ParseFS(sub, "layout.html", page)
+		if err != nil {
+			return nil, fmt.Errorf("parsing template %s: %w", page, err)
+		}
+		out[page] = t
+	}
+	// Alias HTMX fragment names to their parent page template sets.
+	out["bots-table"] = out["bots.html"]
+	return out, nil
 }
 
 // simpleKanbanBuilder returns columns from config with no issues loaded.

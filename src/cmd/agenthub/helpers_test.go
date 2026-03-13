@@ -108,13 +108,15 @@ func TestLoadTemplates(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, tmpl)
 
-	// All expected templates should be present.
+	// All expected page templates should be present in the map.
 	for _, name := range []string{
-		"layout.html", "login.html", "dashboard.html",
+		"login.html", "dashboard.html",
 		"bots.html", "kanban.html", "secrets.html", "setup.html",
 	} {
-		require.NotNil(t, tmpl.Lookup(name), "template %q not found", name)
+		require.NotNil(t, tmpl[name], "template %q not found", name)
 	}
+	// Fragment aliases should be present.
+	require.NotNil(t, tmpl["bots-table"], "fragment bots-table not found")
 }
 
 func TestSimpleKanbanBuilderBuild(t *testing.T) {

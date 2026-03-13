@@ -92,7 +92,7 @@ type Server struct {
 	taskManager    TaskManager     // optional; kanban actions and bot callbacks disabled if nil
 	kanban         KanbanBuilder
 	store          *store.Store
-	tmpl           *template.Template
+	tmpl           map[string]*template.Template
 	mux            *http.ServeMux
 	setupMode      bool   // when true, /admin/* routes redirect to /admin/setup
 	storePath      string // needed by setup handler when setupMode is true
@@ -147,7 +147,7 @@ func NewServer(
 	db BotLister,
 	kb KanbanBuilder,
 	st *store.Store,
-	tmpl *template.Template,
+	tmpl map[string]*template.Template,
 	opts ...ServerOption,
 ) *Server {
 	s := &Server{
@@ -206,16 +206,26 @@ func (s *Server) registerRoutes() {
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data pageData) {
+	tmpl, ok := s.tmpl[name]
+	if !ok {
+		http.Error(w, "template not found: "+name, http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
+	if err := tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 	}
 }
 
 // renderFragment renders only a named sub-template block (for HTMX partials).
 func (s *Server) renderFragment(w http.ResponseWriter, name string, data pageData) {
+	tmpl, ok := s.tmpl[name]
+	if !ok {
+		http.Error(w, "template not found: "+name, http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
+	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 	}
 }

@@ -38,49 +38,58 @@ func (m *mockKanbanBuilder) Build(_ context.Context) (*kanban.Board, error) {
 	return m.board, m.err
 }
 
-// testTemplates returns a minimal template set for tests.
-func testTemplates(t *testing.T) *template.Template {
+// testTemplates returns a minimal per-page template map for tests.
+// Each entry contains a "layout.html" define (required by render) plus
+// optional fragment defines for HTMX partials.
+func testTemplates(t *testing.T) map[string]*template.Template {
 	t.Helper()
-	const tmplSrc = `
-{{define "login.html"}}<!DOCTYPE html><html><body>
+	type entry struct {
+		name string
+		src  string
+	}
+	pages := []entry{
+		{"login.html", `
+{{define "layout.html"}}<!DOCTYPE html><html><body>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 <form method="POST"><input name="password"><button>Login</button></form>
-</body></html>{{end}}
-
-{{define "setup.html"}}<!DOCTYPE html><html><body>
+</body></html>{{end}}`},
+		{"setup.html", `
+{{define "layout.html"}}<!DOCTYPE html><html><body>
 <h1>Setup</h1>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 {{if .Success}}<div class="success">{{.Success}}</div>{{end}}
 <form method="POST"><input name="password"><input name="confirm_password"><button>Setup</button></form>
-</body></html>{{end}}
-
-{{define "dashboard.html"}}<!DOCTYPE html><html><body>
+</body></html>{{end}}`},
+		{"dashboard.html", `
+{{define "layout.html"}}<!DOCTYPE html><html><body>
 <h1>Dashboard</h1>
 {{with .Data}}Bots: {{.BotCount}} Alive: {{.AliveCount}}{{end}}
-</body></html>{{end}}
-
-{{define "bots.html"}}<!DOCTYPE html><html><body>
+</body></html>{{end}}`},
+		{"bots.html", `
+{{define "layout.html"}}<!DOCTYPE html><html><body>
 <h1>Bots</h1>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 </body></html>{{end}}
-
-{{define "bots-table"}}
-<table>{{if .Error}}<tr><td>{{.Error}}</td></tr>{{end}}</table>
-{{end}}
-
-{{define "kanban.html"}}<!DOCTYPE html><html><body>
+{{define "bots-table"}}<table>{{if .Error}}<tr><td>{{.Error}}</td></tr>{{end}}</table>{{end}}`},
+		{"kanban.html", `
+{{define "layout.html"}}<!DOCTYPE html><html><body>
 <h1>Kanban</h1>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-</body></html>{{end}}
-
-{{define "secrets.html"}}<!DOCTYPE html><html><body>
+</body></html>{{end}}`},
+		{"secrets.html", `
+{{define "layout.html"}}<!DOCTYPE html><html><body>
 <h1>Secrets</h1>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 {{if .Success}}<div class="success">{{.Success}}</div>{{end}}
 <form method="POST"><input name="openai_api_key"></form>
-</body></html>{{end}}
-`
-	return template.Must(template.New("").Parse(tmplSrc))
+</body></html>{{end}}`},
+	}
+	out := make(map[string]*template.Template, len(pages)+1)
+	for _, p := range pages {
+		out[p.name] = template.Must(template.New("").Parse(p.src))
+	}
+	out["bots-table"] = out["bots.html"]
+	return out
 }
 
 func testServer(t *testing.T) (*Server, *auth.Manager, *store.Store) {

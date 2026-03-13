@@ -138,3 +138,16 @@ func TestLoadFromFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ":9090", cfg.Server.HTTPAddr)
 }
+
+func TestExpandHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	// ~ alone expands to home.
+	require.Equal(t, home, expandHome("~"))
+	// ~/subdir expands correctly.
+	require.Equal(t, filepath.Join(home, "subdir"), expandHome("~/subdir"))
+	// Non-tilde paths are unchanged.
+	require.Equal(t, "/absolute/path", expandHome("/absolute/path"))
+	require.Equal(t, "relative/path", expandHome("relative/path"))
+}

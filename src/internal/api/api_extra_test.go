@@ -236,7 +236,15 @@ func TestRenderTemplateError(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.render(w, "nonexistent_template.html", pageData{Title: "Test"})
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "template error")
+	require.Contains(t, w.Body.String(), "template not found")
+}
+
+func TestRenderFragmentNotFound(t *testing.T) {
+	srv, _, _ := testServer(t)
+	w := httptest.NewRecorder()
+	srv.renderFragment(w, "nonexistent-fragment", pageData{Title: "Test"})
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), "template not found")
 }
 
 func TestHandleLoginSubmitParseFormError(t *testing.T) {
