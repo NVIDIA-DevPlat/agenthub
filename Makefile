@@ -11,6 +11,10 @@ VERSION      := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
 BINARY       := $(BUILD_DIR)/agenthub
 INSTALL_DIR  ?= $(shell go env GOPATH)/bin
 
+# Minimum Go minor version that supports GOTOOLCHAIN auto-switching (1.21).
+# If the system Go is older than this, deps will install Go from go.dev/dl/.
+GO_BOOTSTRAP_MIN := 21
+
 HTMX_VERSION := 2.0.4
 HTMX_URL     := https://unpkg.com/htmx.org@$(HTMX_VERSION)/dist/htmx.min.js
 HTMX_JS      := web/static/htmx.min.js
@@ -62,21 +66,33 @@ else ifeq ($(shell uname),Linux)
 		sudo apt-get update -q && \
 		sudo apt-get install -y \
 			build-essential curl bc \
-			libicu-dev pkg-config \
-			golang-go; \
+			libicu-dev pkg-config; \
 	elif which dnf >/dev/null 2>&1; then \
 		sudo dnf install -y \
 			gcc gcc-c++ curl bc \
-			libicu-devel pkgconfig \
-			golang; \
+			libicu-devel pkgconfig; \
 	elif which yum >/dev/null 2>&1; then \
 		sudo yum install -y \
 			gcc gcc-c++ curl bc \
-			libicu-devel pkgconfig \
-			golang; \
+			libicu-devel pkgconfig; \
 	else \
 		echo "WARNING: Unknown package manager."; \
-		echo "  Please install manually: Go, gcc/clang, libicu-dev, curl, bc"; \
+		echo "  Please install manually: gcc/clang, libicu-dev, curl, bc"; \
+	fi
+	@# Install Go from go.dev/dl/ if missing or too old for GOTOOLCHAIN support (< 1.21).
+	@GO_MINOR=$$(go version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1 | cut -d. -f2); \
+	if ! which go >/dev/null 2>&1 || [ -z "$$GO_MINOR" ] || [ "$$GO_MINOR" -lt "$(GO_BOOTSTRAP_MIN)" ]; then \
+		ARCH=$$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/'); \
+		GOTAR="go$(GO_VERSION).linux-$$ARCH.tar.gz"; \
+		echo "==> Installing Go $(GO_VERSION) from go.dev/dl/ (system Go is too old or missing)..."; \
+		curl -sSfL "https://go.dev/dl/$$GOTAR" -o /tmp/$$GOTAR; \
+		sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf /tmp/$$GOTAR; \
+		rm -f /tmp/$$GOTAR; \
+		echo "==> Go $(GO_VERSION) installed to /usr/local/go"; \
+		echo "    Add /usr/local/go/bin to your PATH if it is not already there."; \
+		export PATH=$$PATH:/usr/local/go/bin; \
+	else \
+		echo "==> Go $$( go version ) is sufficient; GOTOOLCHAIN will manage $(GO_VERSION)."; \
 	fi
 endif
 	@echo "==> Downloading Go module dependencies..."
