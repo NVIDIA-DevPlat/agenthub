@@ -1,6 +1,10 @@
-// Package api provides the HTTP handlers for the agenthub admin web UI.
+// Package api provides the HTTP handlers for the agenthub admin web UI and
+// the bot-facing REST API (/api/*).
 //
-// All /admin/* routes require authentication via the auth.Manager middleware.
+// All /admin/* routes (except /admin/login, /admin/setup) require authentication
+// via the auth.Manager middleware. /api/* routes use token authentication via
+// the X-Registration-Token header.
+//
 // Templates and static assets are embedded in the binary via //go:embed.
 package api
 
@@ -9,6 +13,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/NVIDIA-DevPlat/agenthub/src/internal/auth"
 	"github.com/NVIDIA-DevPlat/agenthub/src/internal/dolt"
@@ -16,12 +21,16 @@ import (
 	"github.com/NVIDIA-DevPlat/agenthub/src/internal/store"
 )
 
-// BotLister is the interface the API needs to list bots.
+// --------------------------------------------------------------------------
+// Interfaces
+// --------------------------------------------------------------------------
+
+// BotLister lists all registered bot instances.
 type BotLister interface {
 	ListAllInstances(ctx context.Context) ([]*dolt.Instance, error)
 }
 
-// BotDeleter can remove a registered bot by name (across all channels).
+// BotDeleter removes a registered bot by name (across all channels).
 type BotDeleter interface {
 	DeleteInstanceByName(ctx context.Context, name string) error
 }
@@ -31,21 +40,95 @@ type BotChecker interface {
 	CheckBot(ctx context.Context, name string) (alive bool, err error)
 }
 
-// KanbanBuilder is the interface for building the kanban board.
+// BotRegistrar creates new bot registrations.
+type BotRegistrar interface {
+	CreateInstance(ctx context.Context, inst dolt.Instance) error
+}
+
+// HealthProber verifies a bot is reachable at the given host and port.
+type HealthProber interface {
+	Probe(ctx context.Context, host string, port int) error
+}
+
+// CapacityReader retrieves bot capacity data.
+type CapacityReader interface {
+	GetAllCapacities(ctx context.Context) (map[string]*dolt.Capacity, error)
+}
+
+// KanbanBuilder builds the kanban board.
 type KanbanBuilder interface {
 	Build(ctx context.Context) (*kanban.Board, error)
 }
 
+// TaskRecord is a minimal representation of an issue returned by TaskManager
+// to avoid importing beadslib into the api package.
+type TaskRecord struct {
+	ID     string
+	Title  string
+	Status string
+}
+
+// TaskManager handles task creation and status updates for the kanban board
+// and the bot task-status callback endpoint.
+type TaskManager interface {
+	UpdateStatus(ctx context.Context, issueID, newStatus, note, actor string) error
+	GetTask(ctx context.Context, issueID string) (TaskRecord, error)
+	CreateTask(ctx context.Context, title, description, actor string, priority int) (TaskRecord, error)
+}
+
+// --------------------------------------------------------------------------
+// Server
+// --------------------------------------------------------------------------
+
 // Server holds all dependencies for the HTTP API.
 type Server struct {
-	auth    *auth.Manager
-	db      BotLister
-	deleter BotDeleter // optional; handleBotRemove is a no-op if nil
-	checker BotChecker // optional; handleBotCheck is a no-op if nil
-	kanban  KanbanBuilder
-	store   *store.Store
-	tmpl    *template.Template
-	mux     *http.ServeMux
+	auth           *auth.Manager
+	db             BotLister
+	deleter        BotDeleter      // optional; handleBotRemove is a no-op if nil
+	checker        BotChecker      // optional; handleBotCheck is a no-op if nil
+	registrar      BotRegistrar    // optional; handleRegister returns 503 if nil
+	healthProber   HealthProber    // optional; health probe skipped if nil
+	capacityReader CapacityReader  // optional; capacity columns hidden if nil
+	taskManager    TaskManager     // optional; kanban actions and bot callbacks disabled if nil
+	kanban         KanbanBuilder
+	store          *store.Store
+	tmpl           *template.Template
+	mux            *http.ServeMux
+	setupMode      bool   // when true, /admin/* routes redirect to /admin/setup
+	storePath      string // needed by setup handler when setupMode is true
+}
+
+// ServerOption is a functional option for configuring a Server.
+type ServerOption func(*Server)
+
+// WithDeleter sets the optional BotDeleter.
+func WithDeleter(d BotDeleter) ServerOption { return func(s *Server) { s.deleter = d } }
+
+// WithChecker sets the optional BotChecker.
+func WithChecker(c BotChecker) ServerOption { return func(s *Server) { s.checker = c } }
+
+// WithRegistrar sets the optional BotRegistrar for the auto-registration endpoint.
+func WithRegistrar(r BotRegistrar) ServerOption { return func(s *Server) { s.registrar = r } }
+
+// WithHealthProber sets the optional HealthProber used during bot registration.
+func WithHealthProber(hp HealthProber) ServerOption { return func(s *Server) { s.healthProber = hp } }
+
+// WithCapacityReader sets the optional CapacityReader for the bots page.
+func WithCapacityReader(cr CapacityReader) ServerOption {
+	return func(s *Server) { s.capacityReader = cr }
+}
+
+// WithTaskManager sets the optional TaskManager for kanban actions and bot callbacks.
+func WithTaskManager(tm TaskManager) ServerOption { return func(s *Server) { s.taskManager = tm } }
+
+// WithSetupMode puts the server into first-run setup mode.
+// In this mode all /admin/* requests (except /admin/setup and /admin/login)
+// redirect to /admin/setup. storePath is the path where the store will be created.
+func WithSetupMode(storePath string) ServerOption {
+	return func(s *Server) {
+		s.setupMode = true
+		s.storePath = storePath
+	}
 }
 
 // pageData is the common data passed to every template.
@@ -57,32 +140,40 @@ type pageData struct {
 }
 
 // NewServer creates a Server and registers all routes.
-// deleter and checker are optional (pass nil to disable bot removal/checking).
+// The positional parameters are the core mandatory dependencies.
+// Pass ServerOption values to configure optional features.
 func NewServer(
 	authMgr *auth.Manager,
 	db BotLister,
-	deleter BotDeleter,
-	checker BotChecker,
 	kb KanbanBuilder,
 	st *store.Store,
 	tmpl *template.Template,
+	opts ...ServerOption,
 ) *Server {
 	s := &Server{
-		auth:    authMgr,
-		db:      db,
-		deleter: deleter,
-		checker: checker,
-		kanban:  kb,
-		store:   st,
-		tmpl:    tmpl,
-		mux:     http.NewServeMux(),
+		auth:   authMgr,
+		db:     db,
+		kanban: kb,
+		store:  st,
+		tmpl:   tmpl,
+		mux:    http.NewServeMux(),
+	}
+	for _, o := range opts {
+		o(s)
 	}
 	s.registerRoutes()
 	return s
 }
 
-// ServeHTTP implements http.Handler.
+// ServeHTTP implements http.Handler. In setup mode, admin routes redirect to /admin/setup.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.setupMode &&
+		strings.HasPrefix(r.URL.Path, "/admin/") &&
+		r.URL.Path != "/admin/setup" &&
+		r.URL.Path != "/admin/login" {
+		http.Redirect(w, r, "/admin/setup", http.StatusSeeOther)
+		return
+	}
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -92,15 +183,23 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /admin/login", s.handleLoginPage)
 	s.mux.HandleFunc("POST /admin/login", s.handleLoginSubmit)
 	s.mux.HandleFunc("POST /admin/logout", s.handleLogout)
+	s.mux.HandleFunc("GET /admin/setup", s.handleSetupGet)
+	s.mux.HandleFunc("POST /admin/setup", s.handleSetupPost)
 	s.mux.HandleFunc("GET /", s.handleRoot)
 
-	// Protected routes — wrapped with RequireAuth.
+	// Bot-facing API routes (token-authenticated, not cookie-authenticated).
+	s.mux.HandleFunc("POST /api/register", s.handleRegister)
+	s.mux.HandleFunc("POST /api/tasks/{id}/status", s.handleTaskStatusUpdate)
+
+	// Protected admin routes.
 	protected := s.auth.RequireAuth
 	s.mux.Handle("GET /admin/", protected(http.HandlerFunc(s.handleDashboard)))
 	s.mux.Handle("GET /admin/bots", protected(http.HandlerFunc(s.handleBotList)))
 	s.mux.Handle("POST /admin/bots/{name}/remove", protected(http.HandlerFunc(s.handleBotRemove)))
 	s.mux.Handle("POST /admin/bots/{name}/check", protected(http.HandlerFunc(s.handleBotCheck)))
 	s.mux.Handle("GET /admin/kanban", protected(http.HandlerFunc(s.handleKanban)))
+	s.mux.Handle("POST /admin/kanban/tasks", protected(http.HandlerFunc(s.handleKanbanTaskCreate)))
+	s.mux.Handle("POST /admin/kanban/tasks/{id}/status", protected(http.HandlerFunc(s.handleKanbanTaskStatus)))
 	s.mux.Handle("GET /admin/secrets", protected(http.HandlerFunc(s.handleSecretsPage)))
 	s.mux.Handle("POST /admin/secrets", protected(http.HandlerFunc(s.handleSecretsSubmit)))
 }
@@ -112,6 +211,35 @@ func (s *Server) render(w http.ResponseWriter, name string, data pageData) {
 	}
 }
 
+// renderFragment renders only a named sub-template block (for HTMX partials).
+func (s *Server) renderFragment(w http.ResponseWriter, name string, data pageData) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.tmpl.ExecuteTemplate(w, name, data); err != nil {
+		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// validateRegistrationToken checks the X-Registration-Token header against
+// the stored registration token. Returns true if valid.
+func (s *Server) validateRegistrationToken(r *http.Request) bool {
+	if s.store == nil {
+		return false
+	}
+	token := r.Header.Get("X-Registration-Token")
+	if token == "" {
+		return false
+	}
+	stored, err := s.store.Get("registration_token")
+	if err != nil {
+		return false
+	}
+	return token == stored
+}
+
+// --------------------------------------------------------------------------
+// Public handlers
+// --------------------------------------------------------------------------
+
 // handleRoot redirects / to /admin/.
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
@@ -121,7 +249,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin/", http.StatusFound)
 }
 
-// handleHealth returns 200 OK — used by load balancers and liveness probes.
+// handleHealth returns 200 OK for load-balancer and liveness probes.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
@@ -153,6 +281,16 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
 
+// --------------------------------------------------------------------------
+// Protected admin handlers
+// --------------------------------------------------------------------------
+
+// botWithCapacity pairs an Instance with its optional capacity record.
+type botWithCapacity struct {
+	*dolt.Instance
+	Capacity *dolt.Capacity
+}
+
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/admin/" {
 		http.NotFound(w, r)
@@ -166,22 +304,43 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	type dashData struct {
-		BotCount  int
+		BotCount   int
 		AliveCount int
+		TaskCount  int
 	}
-	s.render(w, "dashboard.html", pageData{
-		Title: "Dashboard",
-		Data:  dashData{BotCount: len(bots), AliveCount: aliveCount},
-	})
+	data := dashData{BotCount: len(bots), AliveCount: aliveCount}
+
+	s.render(w, "dashboard.html", pageData{Title: "Dashboard", Data: data})
 }
 
 func (s *Server) handleBotList(w http.ResponseWriter, r *http.Request) {
 	bots, err := s.db.ListAllInstances(r.Context())
 	if err != nil {
-		s.render(w, "bots.html", pageData{Title: "Bots", Error: err.Error()})
+		pd := pageData{Title: "Bots", Error: err.Error()}
+		if r.Header.Get("HX-Request") == "true" {
+			s.renderFragment(w, "bots-table", pd)
+			return
+		}
+		s.render(w, "bots.html", pd)
 		return
 	}
-	s.render(w, "bots.html", pageData{Title: "Bots", Data: bots})
+
+	// Merge capacity data if available.
+	var caps map[string]*dolt.Capacity
+	if s.capacityReader != nil {
+		caps, _ = s.capacityReader.GetAllCapacities(r.Context())
+	}
+	result := make([]botWithCapacity, len(bots))
+	for i, b := range bots {
+		result[i] = botWithCapacity{Instance: b, Capacity: caps[b.ID]}
+	}
+
+	pd := pageData{Title: "Bots", Data: result}
+	if r.Header.Get("HX-Request") == "true" {
+		s.renderFragment(w, "bots-table", pd)
+		return
+	}
+	s.render(w, "bots.html", pd)
 }
 
 func (s *Server) handleBotRemove(w http.ResponseWriter, r *http.Request) {
@@ -216,6 +375,43 @@ func (s *Server) handleKanban(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "kanban.html", pageData{Title: "Kanban", Data: board})
 }
 
+func (s *Server) handleKanbanTaskStatus(w http.ResponseWriter, r *http.Request) {
+	if s.taskManager == nil {
+		http.Redirect(w, r, "/admin/kanban", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/admin/kanban", http.StatusSeeOther)
+		return
+	}
+	issueID := r.PathValue("id")
+	status := r.FormValue("status")
+	if err := s.taskManager.UpdateStatus(r.Context(), issueID, status, "", "admin"); err != nil {
+		slog.Error("updating kanban task status", "id", issueID, "status", status, "error", err)
+	}
+	http.Redirect(w, r, "/admin/kanban", http.StatusSeeOther)
+}
+
+func (s *Server) handleKanbanTaskCreate(w http.ResponseWriter, r *http.Request) {
+	if s.taskManager == nil {
+		http.Redirect(w, r, "/admin/kanban", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/admin/kanban", http.StatusSeeOther)
+		return
+	}
+	title := r.FormValue("title")
+	if title == "" {
+		http.Redirect(w, r, "/admin/kanban", http.StatusSeeOther)
+		return
+	}
+	if _, err := s.taskManager.CreateTask(r.Context(), title, "", "admin", 2); err != nil {
+		slog.Error("creating kanban task", "title", title, "error", err)
+	}
+	http.Redirect(w, r, "/admin/kanban", http.StatusSeeOther)
+}
+
 func (s *Server) handleSecretsPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "secrets.html", pageData{Title: "Secrets"})
 }
@@ -234,6 +430,7 @@ func (s *Server) handleSecretsSubmit(w http.ResponseWriter, r *http.Request) {
 		{"openai_api_key", "openai_api_key"},
 		{"slack_bot_token", "slack_bot_token"},
 		{"slack_app_token", "slack_app_token"},
+		{"registration_token", "registration_token"},
 	}
 
 	for _, f := range fields {

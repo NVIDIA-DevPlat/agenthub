@@ -81,6 +81,17 @@ var migrations = []migration{
 			UNIQUE KEY uq_name_channel (name, channel_id)
 		)`,
 	},
+	{
+		Name: "002_create_bot_capacity",
+		SQL: `CREATE TABLE IF NOT EXISTS bot_capacity (
+			bot_id       VARCHAR(36)  NOT NULL,
+			gpu_free_mb  INT          NOT NULL DEFAULT 0,
+			jobs_queued  INT          NOT NULL DEFAULT 0,
+			jobs_running INT          NOT NULL DEFAULT 0,
+			updated_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (bot_id)
+		)`,
+	},
 }
 
 // Instance represents a registered openclaw bot.
@@ -210,6 +221,68 @@ func (db *DB) DeleteInstance(ctx context.Context, name, channelID string) error 
 func (db *DB) DeleteInstanceByName(ctx context.Context, name string) error {
 	_, err := db.ExecContext(ctx, `DELETE FROM openclaw_instances WHERE name = ?`, name)
 	return err
+}
+
+// Capacity holds the live capacity report for a bot instance.
+type Capacity struct {
+	BotID       string
+	GPUFreeMB   int
+	JobsQueued  int
+	JobsRunning int
+	UpdatedAt   time.Time
+}
+
+// UpdateCapacity upserts the capacity record for a bot.
+func (db *DB) UpdateCapacity(ctx context.Context, id string, cap Capacity) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO bot_capacity (bot_id, gpu_free_mb, jobs_queued, jobs_running)
+		VALUES (?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			gpu_free_mb  = VALUES(gpu_free_mb),
+			jobs_queued  = VALUES(jobs_queued),
+			jobs_running = VALUES(jobs_running),
+			updated_at   = NOW()`,
+		id, cap.GPUFreeMB, cap.JobsQueued, cap.JobsRunning,
+	)
+	if err != nil {
+		return fmt.Errorf("updating capacity for %q: %w", id, err)
+	}
+	return nil
+}
+
+// GetCapacity returns the capacity record for a bot, or nil if none exists.
+func (db *DB) GetCapacity(ctx context.Context, botID string) (*Capacity, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT bot_id, gpu_free_mb, jobs_queued, jobs_running, updated_at
+		FROM bot_capacity WHERE bot_id = ?`, botID)
+	var c Capacity
+	if err := row.Scan(&c.BotID, &c.GPUFreeMB, &c.JobsQueued, &c.JobsRunning, &c.UpdatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("scanning capacity: %w", err)
+	}
+	return &c, nil
+}
+
+// GetAllCapacities returns all bot capacity records keyed by bot ID.
+func (db *DB) GetAllCapacities(ctx context.Context) (map[string]*Capacity, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT bot_id, gpu_free_mb, jobs_queued, jobs_running, updated_at FROM bot_capacity`)
+	if err != nil {
+		return nil, fmt.Errorf("querying capacities: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]*Capacity)
+	for rows.Next() {
+		var c Capacity
+		if err := rows.Scan(&c.BotID, &c.GPUFreeMB, &c.JobsQueued, &c.JobsRunning, &c.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scanning capacity row: %w", err)
+		}
+		result[c.BotID] = &c
+	}
+	return result, rows.Err()
 }
 
 // scanner is satisfied by both *sql.Row and *sql.Rows.

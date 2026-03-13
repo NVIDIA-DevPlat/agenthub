@@ -1,5 +1,5 @@
-# Build output
-agenthub
+# Build output (root binary only, not the source directory)
+/agenthub
 
 # Test coverage
 coverage.out

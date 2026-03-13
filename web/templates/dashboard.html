@@ -1,18 +1,29 @@
 {{template "layout.html" .}}
 {{define "title"}}Dashboard — agenthub{{end}}
 {{define "content"}}
-<h1>Dashboard</h1>
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <span class="htmx-indicator" id="dash-spinner">Refreshing…</span>
+</div>
 {{with .Data}}
-<div style="display:flex;gap:1rem;margin-bottom:1.5rem">
-    <div class="card">
+<div class="stat-row"
+     hx-get="/admin/"
+     hx-trigger="every 30s"
+     hx-target=".stat-row"
+     hx-swap="outerHTML">
+    <div class="card accent-green">
         <h2>{{.BotCount}}</h2>
         <p>Registered Bots</p>
     </div>
-    <div class="card">
+    <div class="card accent-blue">
         <h2>{{.AliveCount}}</h2>
         <p>Online Bots</p>
     </div>
 </div>
 {{end}}
-<p><a href="/admin/bots">Manage Bots</a> · <a href="/admin/kanban">Kanban Board</a></p>
+<div class="quick-links">
+    <a href="/admin/bots">Manage Bots →</a>
+    <a href="/admin/kanban">Kanban Board →</a>
+    <a href="/admin/secrets">Secrets →</a>
+</div>
 {{end}}

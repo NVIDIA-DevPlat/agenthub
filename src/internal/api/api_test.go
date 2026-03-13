@@ -47,6 +47,13 @@ func testTemplates(t *testing.T) *template.Template {
 <form method="POST"><input name="password"><button>Login</button></form>
 </body></html>{{end}}
 
+{{define "setup.html"}}<!DOCTYPE html><html><body>
+<h1>Setup</h1>
+{{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+{{if .Success}}<div class="success">{{.Success}}</div>{{end}}
+<form method="POST"><input name="password"><input name="confirm_password"><button>Setup</button></form>
+</body></html>{{end}}
+
 {{define "dashboard.html"}}<!DOCTYPE html><html><body>
 <h1>Dashboard</h1>
 {{with .Data}}Bots: {{.BotCount}} Alive: {{.AliveCount}}{{end}}
@@ -56,6 +63,10 @@ func testTemplates(t *testing.T) *template.Template {
 <h1>Bots</h1>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 </body></html>{{end}}
+
+{{define "bots-table"}}
+<table>{{if .Error}}<tr><td>{{.Error}}</td></tr>{{end}}</table>
+{{end}}
 
 {{define "kanban.html"}}<!DOCTYPE html><html><body>
 <h1>Kanban</h1>
@@ -86,7 +97,7 @@ func testServer(t *testing.T) (*Server, *auth.Manager, *store.Store) {
 	kb := &mockKanbanBuilder{board: &kanban.Board{}}
 	tmpl := testTemplates(t)
 
-	srv := NewServer(authMgr, db, nil, nil, kb, st, tmpl)
+	srv := NewServer(authMgr, db, kb, st, tmpl)
 	return srv, authMgr, st
 }
 

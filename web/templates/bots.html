@@ -1,40 +1,74 @@
 {{template "layout.html" .}}
 {{define "title"}}Bots — agenthub{{end}}
 {{define "content"}}
-<h1>Registered Bots</h1>
+<div class="page-header">
+    <h1>Registered Bots</h1>
+    <span class="htmx-indicator" id="bots-spinner">Refreshing…</span>
+</div>
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<div id="bots-table-wrap"
+     hx-get="/admin/bots"
+     hx-trigger="every 30s"
+     hx-target="#bots-table-wrap"
+     hx-swap="outerHTML"
+     hx-headers='{"HX-Request": "true"}'>
+    {{template "bots-table" .}}
+</div>
+{{end}}
+
+{{define "bots-table"}}
+<div id="bots-table-wrap"
+     hx-get="/admin/bots"
+     hx-trigger="every 30s"
+     hx-target="#bots-table-wrap"
+     hx-swap="outerHTML"
+     hx-headers='{"HX-Request": "true"}'>
 <table>
     <thead>
         <tr>
-            <th>Name</th><th>Host</th><th>Port</th><th>Owner</th><th>Channel</th><th>Status</th><th>Last Seen</th><th>Actions</th>
+            <th>Name</th>
+            <th>Host:Port</th>
+            <th>Owner</th>
+            <th>Status</th>
+            <th>GPU Free</th>
+            <th>Jobs Q/R</th>
+            <th>Last Seen</th>
+            <th>Actions</th>
         </tr>
     </thead>
     <tbody>
     {{range .Data}}
-    <tr>
-        <td>{{.Name}}</td>
-        <td>{{.Host}}</td>
-        <td>{{.Port}}</td>
-        <td>{{.OwnerSlackUser}}</td>
-        <td>{{.ChannelID}}</td>
+    <tr class="{{if .IsAlive}}row-alive{{else}}row-dead{{end}}">
+        <td class="bot-name">{{.Name}}</td>
+        <td class="bot-host">{{.Host}}:{{.Port}}</td>
+        <td>{{if .OwnerSlackUser}}{{.OwnerSlackUser}}{{else}}—{{end}}</td>
         <td>
-            {{if .IsAlive}}<span class="status-alive">online</span>{{else}}<span class="status-dead">offline</span>{{end}}
+            {{if .IsAlive}}
+                <span class="badge badge-online">online</span>
+            {{else}}
+                <span class="badge badge-offline">offline</span>
+            {{end}}
         </td>
-        <td>{{if .LastSeenAt}}{{.LastSeenAt}}{{else}}—{{end}}</td>
-        <td>
+        <td>{{if .Capacity}}{{.Capacity.GPUFreeMB}} MB{{else}}—{{end}}</td>
+        <td>{{if .Capacity}}{{.Capacity.JobsQueued}}/{{.Capacity.JobsRunning}}{{else}}—{{end}}</td>
+        <td class="ts">{{if .LastSeenAt}}{{.LastSeenAt}}{{else}}—{{end}}</td>
+        <td class="actions">
             <form method="POST" action="/admin/bots/{{.Name}}/check" style="display:inline"
-                  hx-post="/admin/bots/{{.Name}}/check" hx-target="closest tr">
-                <button type="submit">Check</button>
+                  hx-post="/admin/bots/{{.Name}}/check"
+                  hx-target="closest tr"
+                  hx-swap="outerHTML">
+                <button type="submit" class="btn-sm">Check</button>
             </form>
             <form method="POST" action="/admin/bots/{{.Name}}/remove" style="display:inline">
-                <button type="submit" class="danger"
+                <button type="submit" class="btn-sm btn-danger"
                         onclick="return confirm('Remove {{.Name}}?')">Remove</button>
             </form>
         </td>
     </tr>
     {{else}}
-    <tr><td colspan="8">No bots registered.</td></tr>
+    <tr><td colspan="8" class="empty-row">No bots registered yet.</td></tr>
     {{end}}
     </tbody>
 </table>
+</div>
 {{end}}

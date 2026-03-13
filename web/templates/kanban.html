@@ -1,22 +1,44 @@
 {{template "layout.html" .}}
 {{define "title"}}Kanban — agenthub{{end}}
 {{define "content"}}
-<h1>Kanban Board</h1>
+<div class="page-header">
+    <h1>Kanban Board</h1>
+    <span class="htmx-indicator">Refreshing…</span>
+</div>
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-<div class="kanban" hx-get="/admin/kanban" hx-trigger="every 30s" hx-swap="outerHTML">
+<div class="kanban"
+     hx-get="/admin/kanban"
+     hx-trigger="every 30s"
+     hx-swap="outerHTML"
+     hx-select=".kanban">
 {{with .Data}}
 {{range .Columns}}
 <div class="kanban-col">
-    <h3>{{.Status}} ({{len .Issues}})</h3>
+    <h3>
+        {{.Status}}
+        <span class="count">{{len .Issues}}</span>
+    </h3>
+    <div class="kanban-cards">
     {{range .Issues}}
     <div class="kanban-card">
-        <div class="id">{{.ID}}</div>
-        <div>{{.Title}}</div>
-        {{if .Assignee}}<div style="font-size:0.8em;color:#888">→ {{.Assignee}}</div>{{end}}
+        <div class="card-id">{{.ID}}</div>
+        <div class="card-title">{{.Title}}</div>
+        {{if .Assignee}}<div class="card-assignee">→ {{.Assignee}}</div>{{end}}
     </div>
     {{else}}
-    <div style="color:#aaa;font-size:0.85em;padding:0.5rem">Empty</div>
+    <div class="kanban-empty">Empty</div>
     {{end}}
+    </div>
+    <div class="kanban-add-form">
+        <form hx-post="/admin/kanban/tasks"
+              hx-target=".kanban"
+              hx-swap="outerHTML"
+              hx-select=".kanban">
+            <input type="hidden" name="status" value="{{.Status}}">
+            <input type="text" name="title" placeholder="New task…" required>
+            <button type="submit" class="btn-secondary btn-sm">+ Add</button>
+        </form>
+    </div>
 </div>
 {{end}}
 {{end}}

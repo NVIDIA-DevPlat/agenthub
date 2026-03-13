@@ -44,6 +44,21 @@ func NewClient(host string, port int, timeout time.Duration, healthPath, directi
 	}
 }
 
+// CapacityReport holds resource availability data reported by an openclaw instance.
+// Bots that do not report capacity omit these fields; the response body may be
+// plain text "ok", in which case HealthWithCapacity returns (nil, nil).
+type CapacityReport struct {
+	GPUFreeMB   int `json:"gpu_free_mb"`
+	JobsQueued  int `json:"jobs_queued"`
+	JobsRunning int `json:"jobs_running"`
+}
+
+// CapacityUpdater is called by the LivenessChecker when fresh capacity data is
+// available from a bot's health response.
+type CapacityUpdater interface {
+	UpdateCapacity(ctx context.Context, id string, cap *CapacityReport) error
+}
+
 // Health performs a GET /health request. Returns nil if the instance is alive.
 func (c *Client) Health(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+c.healthPath, nil)
@@ -59,6 +74,29 @@ func (c *Client) Health(ctx context.Context) error {
 		return fmt.Errorf("health check returned %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// HealthWithCapacity performs a GET /health request and, if the response body
+// is JSON containing capacity fields, decodes and returns them. A plain-text
+// "ok" response (or any non-JSON body) is not an error — it returns nil capacity.
+func (c *Client) HealthWithCapacity(ctx context.Context) (*CapacityReport, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+c.healthPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("building health request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("health check failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("health check returned %d", resp.StatusCode)
+	}
+	var cap CapacityReport
+	if err := json.NewDecoder(resp.Body).Decode(&cap); err != nil {
+		return nil, nil // non-JSON body is fine — bot doesn't report capacity
+	}
+	return &cap, nil
 }
 
 // directive is the JSON body for POST /directives.
@@ -133,9 +171,10 @@ type LivenessCheckerConfig struct {
 // LivenessChecker polls all registered openclaw instances at a configurable interval.
 // On alive→dead or dead→alive transitions it calls the notifier.
 type LivenessChecker struct {
-	lister   InstanceLister
-	notifier LivenessNotifier
-	cfg      LivenessCheckerConfig
+	lister          InstanceLister
+	notifier        LivenessNotifier
+	cfg             LivenessCheckerConfig
+	capacityUpdater CapacityUpdater // optional; set via WithCapacityUpdater
 }
 
 // NewLivenessChecker creates a LivenessChecker.
@@ -145,6 +184,14 @@ func NewLivenessChecker(lister InstanceLister, notifier LivenessNotifier, cfg Li
 		notifier: notifier,
 		cfg:      cfg,
 	}
+}
+
+// WithCapacityUpdater attaches an optional CapacityUpdater that is called after each
+// successful health check to persist the bot's reported GPU/job capacity. Calling this
+// does not change the LivenessChecker constructor signature.
+func (lc *LivenessChecker) WithCapacityUpdater(cu CapacityUpdater) *LivenessChecker {
+	lc.capacityUpdater = cu
+	return lc
 }
 
 // Run starts the liveness polling loop. It blocks until ctx is cancelled.
@@ -184,6 +231,15 @@ func (lc *LivenessChecker) checkOne(ctx context.Context, inst InstanceRecord) {
 
 	err := client.Health(checkCtx)
 	nowAlive := err == nil
+
+	// Update capacity whenever the bot is alive, regardless of state change.
+	if nowAlive && lc.capacityUpdater != nil {
+		capCtx, capCancel := context.WithTimeout(ctx, lc.cfg.Timeout)
+		defer capCancel()
+		if cap, capErr := client.HealthWithCapacity(capCtx); capErr == nil && cap != nil {
+			_ = lc.capacityUpdater.UpdateCapacity(ctx, inst.ID, cap)
+		}
+	}
 
 	if nowAlive == inst.WasAlive {
 		return // no state change

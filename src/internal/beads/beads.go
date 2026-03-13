@@ -124,6 +124,21 @@ func (c *Client) ListAll(ctx context.Context, filter beadslib.IssueFilter) ([]*b
 	return issues, nil
 }
 
+// UpdateStatus changes the status of an issue and optionally records a note as a comment.
+// newStatus should be one of: "open", "in_progress", "blocked", "done".
+func (c *Client) UpdateStatus(ctx context.Context, issueID, newStatus, note, actor string) error {
+	if note != "" {
+		if err := c.AddComment(ctx, issueID, actor, note); err != nil {
+			return fmt.Errorf("adding status note for %q: %w", issueID, err)
+		}
+	}
+	updates := map[string]interface{}{"status": beadslib.Status(newStatus)}
+	if err := c.storage.UpdateIssue(ctx, issueID, updates, actor); err != nil {
+		return fmt.Errorf("updating status of task %q: %w", issueID, err)
+	}
+	return nil
+}
+
 // AddComment adds a comment to an issue.
 func (c *Client) AddComment(ctx context.Context, issueID, author, text string) error {
 	_, err := c.storage.AddIssueComment(ctx, issueID, author, text)

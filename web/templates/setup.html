@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup — agenthub</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="setup-body">
+<div class="setup-wrap">
+    <div class="setup-logo">
+        <span class="brand-text">agenthub</span>
+        <span class="brand-sub">First-run Setup</span>
+    </div>
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    {{if .Success}}
+    <div class="success-box">
+        <p>{{.Success}}</p>
+        <p><a href="/admin/login">Go to login →</a></p>
+    </div>
+    {{else}}
+    <form method="POST" action="/admin/setup" class="setup-form">
+        <p class="setup-intro">Choose an admin password to protect this instance.
+        This password will be used to encrypt all secrets at rest.</p>
+        <label for="password">Admin Password</label>
+        <input type="password" id="password" name="password" autofocus required minlength="8"
+               placeholder="At least 8 characters">
+        <label for="confirm_password">Confirm Password</label>
+        <input type="password" id="confirm_password" name="confirm_password" required minlength="8"
+               placeholder="Repeat your password">
+        <hr>
+        <p class="setup-optional">Optional: pre-fill secrets now (you can also add these later via Secrets page)</p>
+        <label for="openai_api_key">OpenAI API Key</label>
+        <input type="password" id="openai_api_key" name="openai_api_key" placeholder="sk-... (optional)">
+        <label for="slack_bot_token">Slack Bot Token</label>
+        <input type="password" id="slack_bot_token" name="slack_bot_token" placeholder="xoxb-... (optional)">
+        <label for="slack_app_token">Slack App Token</label>
+        <input type="password" id="slack_app_token" name="slack_app_token" placeholder="xapp-... (optional)">
+        <button type="submit" class="btn-primary">Initialize agenthub</button>
+    </form>
+    {{end}}
+</div>
+</body>
+</html>
