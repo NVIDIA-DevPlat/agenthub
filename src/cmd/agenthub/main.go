@@ -53,11 +53,13 @@ func run(args []string) error {
 		return cmdServe(args[1:])
 	case "setup":
 		return cmdSetup(args[1:])
+	case "secret":
+		return cmdSecret(args[1:])
 	case "version":
 		fmt.Printf("agenthub %s (build %s)\n", Version, Build)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q — try: serve, setup, version", args[0])
+		return fmt.Errorf("unknown command %q — try: serve, setup, secret, version", args[0])
 	}
 }
 
@@ -333,6 +335,79 @@ func cmdSetup(_ []string) error {
 	}
 
 	fmt.Printf("Setup complete. Registration token: %s\nRun 'agenthub serve' to start.\n", regToken)
+	return nil
+}
+
+// cmdSecret implements "agenthub secret set|get|list [key] [value]".
+// It opens the encrypted store with the admin password and reads or writes secrets
+// without requiring the full server to be running.
+func cmdSecret(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: agenthub secret <set|get|list> [key] [value]")
+	}
+
+	cfgPath := "config.yaml"
+	if v := os.Getenv("AGENTHUB_CONFIG"); v != "" {
+		cfgPath = v
+	}
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	var password string
+	if pw := os.Getenv("AGENTHUB_ADMIN_PASSWORD"); pw != "" {
+		password = pw
+	} else {
+		password, err = readPassword("Admin password: ")
+		if err != nil {
+			return fmt.Errorf("reading password: %w", err)
+		}
+	}
+
+	st, err := store.Open(cfg.Store.Path, password)
+	if err != nil {
+		return fmt.Errorf("opening secrets store: %w", err)
+	}
+
+	switch args[0] {
+	case "set":
+		if len(args) != 3 {
+			return fmt.Errorf("usage: agenthub secret set <key> <value>")
+		}
+		if err := st.Set(args[1], args[2]); err != nil {
+			return fmt.Errorf("setting %q: %w", args[1], err)
+		}
+		fmt.Printf("Secret %q saved.\n", args[1])
+
+	case "get":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: agenthub secret get <key>")
+		}
+		val, err := st.Get(args[1])
+		if err != nil {
+			return fmt.Errorf("getting %q: %w", args[1], err)
+		}
+		fmt.Println(val)
+
+	case "list":
+		knownKeys := []string{
+			"openai_api_key", "slack_bot_token", "slack_app_token",
+			"registration_token", "admin_password_hash", "session_secret",
+		}
+		for _, key := range knownKeys {
+			val, _ := st.Get(key)
+			if val != "" {
+				fmt.Printf("%-24s (set)\n", key)
+			} else {
+				fmt.Printf("%-24s (not set)\n", key)
+			}
+		}
+
+	default:
+		return fmt.Errorf("unknown secret subcommand %q — try: set, get, list", args[0])
+	}
 	return nil
 }
 
