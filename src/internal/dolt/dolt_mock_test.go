@@ -25,16 +25,39 @@ func newMockDB(t *testing.T) (*DB, sqlmock.Sqlmock) {
 
 func TestMigrateSuccess(t *testing.T) {
 	doltDB, mock := newMockDB(t)
+	// New Migrate: 1) CREATE schema_migrations table, 2) SELECT applied names,
+	// then for each migration: exec SQL + INSERT IGNORE into schema_migrations.
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS schema_migrations").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT name FROM schema_migrations").
+		WillReturnRows(sqlmock.NewRows([]string{"name"})) // no applied migrations
 	for range migrations {
 		mock.ExpectExec(".*").WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectExec("INSERT IGNORE INTO schema_migrations").
+			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
+	require.NoError(t, doltDB.Migrate(context.Background()))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMigrateSuccessAlreadyApplied(t *testing.T) {
+	doltDB, mock := newMockDB(t)
+	// All migrations already applied → only creates table + reads names, skips all.
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS schema_migrations").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	appliedRows := sqlmock.NewRows([]string{"name"})
+	for _, m := range migrations {
+		appliedRows.AddRow(m.Name)
+	}
+	mock.ExpectQuery("SELECT name FROM schema_migrations").WillReturnRows(appliedRows)
 	require.NoError(t, doltDB.Migrate(context.Background()))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestMigrateError(t *testing.T) {
 	doltDB, mock := newMockDB(t)
-	mock.ExpectExec(".*").WillReturnError(fmt.Errorf("syntax error"))
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS schema_migrations").
+		WillReturnError(fmt.Errorf("syntax error"))
 	err := doltDB.Migrate(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "migration")

@@ -160,6 +160,7 @@ func cmdServe(_ []string) error {
 		api.WithHealthProber(&openclawProber{cfg: cfg.Openclaw, timeout: cfg.Openclaw.LivenessTimeout}),
 		api.WithCapacityReader(db),
 		api.WithKanbanColumns(cfg.Kanban.Columns),
+		api.WithPublicURL(cfg.Server.PublicURL),
 	}
 	if beadsClient != nil {
 		btm := &beadsTaskManager{client: beadsClient}

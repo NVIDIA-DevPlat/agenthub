@@ -18,6 +18,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/NVIDIA-DevPlat/agenthub/src/internal/dolt"
 )
 
 // InboxReplier is the optional interface used to post agent replies to Slack.
@@ -26,13 +28,24 @@ type InboxReplier interface {
 	PostMessage(ctx context.Context, channel, text string) error
 }
 
+// TaskContext carries the task assignment details needed for credential delivery.
+type TaskContext struct {
+	TaskAssignmentID string                `json:"task_assignment_id"`
+	TaskID           string                `json:"task_id"`
+	ProjectID        string                `json:"project_id"`
+	ProjectName      string                `json:"project_name"`
+	ResourceGrants   []dolt.ResourceGrant  `json:"resource_grants"` // metadata only
+	CredentialURL    string                `json:"credential_url"`
+}
+
 // InboxMessage is a message buffered for an agent to read.
 type InboxMessage struct {
-	ID        string    `json:"id"`
-	From      string    `json:"from"`    // Slack user ID, "system", or "webhook:<channel>"
-	Channel   string    `json:"channel"` // Slack channel (used when posting replies)
-	Text      string    `json:"text"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          string       `json:"id"`
+	From        string       `json:"from"`    // Slack user ID, "system", or "webhook:<channel>"
+	Channel     string       `json:"channel"` // Slack channel (used when posting replies)
+	Text        string       `json:"text"`
+	CreatedAt   time.Time    `json:"created_at"`
+	TaskContext *TaskContext  `json:"task_context,omitempty"`
 }
 
 // Inbox is a concurrent per-bot in-memory message queue.
@@ -49,13 +62,20 @@ func newInbox() *Inbox {
 
 // Enqueue adds a message to botName's queue and returns the new message ID.
 func (b *Inbox) Enqueue(botName, from, channel, text string) string {
+	return b.EnqueueWithContext(botName, from, channel, text, nil)
+}
+
+// EnqueueWithContext adds a message with an optional TaskContext to botName's queue
+// and returns the new message ID.
+func (b *Inbox) EnqueueWithContext(botName, from, channel, text string, tc *TaskContext) string {
 	n := b.seq.Add(1)
 	msg := &InboxMessage{
-		ID:        fmt.Sprintf("msg-%d", n),
-		From:      from,
-		Channel:   channel,
-		Text:      text,
-		CreatedAt: time.Now().UTC(),
+		ID:          fmt.Sprintf("msg-%d", n),
+		From:        from,
+		Channel:     channel,
+		Text:        text,
+		CreatedAt:   time.Now().UTC(),
+		TaskContext: tc,
 	}
 	b.mu.Lock()
 	b.queues[botName] = append(b.queues[botName], msg)
