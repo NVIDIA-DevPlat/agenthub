@@ -36,7 +36,7 @@ AI agent sessions that span multiple commits get a narrative section below the l
 | `5798779` | jordanh `jordanh@nvidia.com` | 2026-03-14 | Added MEMORY.md session log and corrected deploy sequence (stop service before `sudo cp`). |
 | `5d2a248` | jordanh `jordanh@nvidia.com` | 2026-03-14 | Added Commandment 5 to AGENTS.md requiring every commit to be logged in MEMORY.md; backfilled full commit history; added this entry per jordanh's instruction. |
 | `(ssh)` | jordanh `jordanh@nvidia.com` | 2026-03-14 | Expanded AGENTS.md SSH config section to instruct all contributors to add the `agenthub` host entry to `~/.ssh/config` — without it every deploy fails. |
-| `(next)` | jordanh `jordanh@nvidia.com` | 2026-03-14 | Switched beads to server mode (remote dolt at 42251); created `beads-dolt.service`; installed `bd` CLI on VM; added Commandment 6 (check open issues before starting). |
+| `900c96a` | jordanh `jordanh@nvidia.com` | 2026-03-14 | Switched beads to server mode (remote dolt at 42251); created `beads-dolt.service`; installed `bd` CLI on VM; added Commandment 6 (check open issues before starting). |
 
 ---
 
