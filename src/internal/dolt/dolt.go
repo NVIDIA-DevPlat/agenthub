@@ -81,11 +81,48 @@ func ensureDatabase(cfg *mysql.Config) error {
 	return nil
 }
 
-// Migrate runs all schema migrations. It is idempotent.
+// Migrate runs all schema migrations. Each migration is tracked in the
+// schema_migrations table and run at most once.
 func (db *DB) Migrate(ctx context.Context) error {
+	// Bootstrap the migrations tracking table first.
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		name       VARCHAR(255) NOT NULL,
+		applied_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (name)
+	)`)
+	if err != nil {
+		return fmt.Errorf("creating schema_migrations table: %w", err)
+	}
+
+	// Load already-applied migrations.
+	rows, err := db.QueryContext(ctx, `SELECT name FROM schema_migrations`)
+	if err != nil {
+		return fmt.Errorf("reading schema_migrations: %w", err)
+	}
+	applied := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return fmt.Errorf("scanning schema_migrations: %w", err)
+		}
+		applied[name] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating schema_migrations: %w", err)
+	}
+
 	for _, m := range migrations {
+		if applied[m.Name] {
+			continue
+		}
 		if _, err := db.ExecContext(ctx, m.SQL); err != nil {
 			return fmt.Errorf("migration %q: %w", m.Name, err)
+		}
+		if _, err := db.ExecContext(ctx,
+			`INSERT IGNORE INTO schema_migrations (name) VALUES (?)`, m.Name); err != nil {
+			return fmt.Errorf("recording migration %q: %w", m.Name, err)
 		}
 	}
 	return nil
@@ -186,9 +223,9 @@ var migrations = []migration{
 	{
 		Name: "007_alter_openclaw_instances",
 		SQL: `ALTER TABLE openclaw_instances
-			ADD COLUMN IF NOT EXISTS user_id     VARCHAR(36)  NOT NULL DEFAULT '',
-			ADD COLUMN IF NOT EXISTS description TEXT         NOT NULL DEFAULT '',
-			ADD COLUMN IF NOT EXISTS skills      JSON         NOT NULL DEFAULT ('[]')`,
+			ADD COLUMN user_id     VARCHAR(36)  NOT NULL DEFAULT '',
+			ADD COLUMN description TEXT         NOT NULL DEFAULT '',
+			ADD COLUMN skills      JSON         NOT NULL DEFAULT ('[]')`,
 	},
 	{
 		Name: "008_create_project_agents",
