@@ -16,7 +16,7 @@
 {{range .Columns}}
 <div class="kanban-col">
     <h3>
-        {{.Status}}
+        {{humanStatus .Status}}
         <span class="count">{{len .Issues}}</span>
     </h3>
     <div class="kanban-cards">

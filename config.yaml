@@ -89,11 +89,11 @@ log:
   format: "json"
 
 kanban:
-  # Column names and order for the kanban board
-  # These must match the status values used in Beads issues
+  # Column names must be valid Beads status values:
+  # open, in_progress, blocked, deferred, closed
   columns:
-    - "backlog"
-    - "ready"
+    - "open"
     - "in_progress"
-    - "review"
-    - "done"
+    - "blocked"
+    - "deferred"
+    - "closed"

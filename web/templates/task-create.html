@@ -17,7 +17,7 @@
             <label>Status</label>
             <select name="status">
                 {{range .Data.Columns}}
-                <option value="{{.}}">{{.}}</option>
+                <option value="{{.}}">{{humanStatus .}}</option>
                 {{end}}
             </select>
         </div>

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -416,18 +417,31 @@ func cmdSecret(args []string) error {
 // template parsed together with one page file so that {{define "title"}} and
 // {{define "content"}} in each page override the layout's {{block}} defaults
 // independently — preventing the last-parsed file from winning for all pages.
+// humanStatus converts a beads status value to a display-friendly string.
+// "in_progress" → "In Progress", "open" → "Open", etc.
+func humanStatus(s string) string {
+	words := strings.Split(strings.ReplaceAll(s, "_", " "), " ")
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
 func loadTemplates() (map[string]*template.Template, error) {
 	sub, err := fs.Sub(agenthub.Templates, "web/templates")
 	if err != nil {
 		return nil, err
 	}
+	funcs := template.FuncMap{"humanStatus": humanStatus}
 	pages := []string{
 		"login.html", "setup.html", "dashboard.html",
 		"bots.html", "kanban.html", "secrets.html", "task-create.html",
 	}
 	out := make(map[string]*template.Template, len(pages)+1)
 	for _, page := range pages {
-		t, err := template.ParseFS(sub, "layout.html", page)
+		t, err := template.New("layout.html").Funcs(funcs).ParseFS(sub, "layout.html", page)
 		if err != nil {
 			return nil, fmt.Errorf("parsing template %s: %w", page, err)
 		}
