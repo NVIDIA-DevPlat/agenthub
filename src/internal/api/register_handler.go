@@ -38,8 +38,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the bot is reachable before registering.
-	if s.healthProber != nil {
+	// Verify the bot is reachable before registering, unless the caller
+	// explicitly opts out (e.g. when agent and server are on separate networks).
+	skipProbe := r.URL.Query().Get("skip_probe") == "1"
+	if s.healthProber != nil && !skipProbe {
 		if err := s.healthProber.Probe(r.Context(), req.Host, req.Port); err != nil {
 			http.Error(w, `{"error":"bot health check failed: `+err.Error()+`"}`, http.StatusServiceUnavailable)
 			return

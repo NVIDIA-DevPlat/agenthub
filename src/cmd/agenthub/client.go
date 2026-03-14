@@ -269,7 +269,8 @@ func registerAgent(serverURL, regToken, name, host, portStr string) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPost, serverURL+"/api/register", bytes.NewReader(body))
+	// Use skip_probe=1 because agent and server may be on different networks.
+	req, err := http.NewRequest(http.MethodPost, serverURL+"/api/register?skip_probe=1", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
