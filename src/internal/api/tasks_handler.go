@@ -6,14 +6,13 @@ import (
 	"net/http"
 )
 
+// validStatuses mirrors the beads status constants that pass validation on write.
 var validStatuses = map[string]bool{
 	"open":        true,
 	"in_progress": true,
 	"blocked":     true,
-	"done":        true,
-	"backlog":     true,
-	"ready":       true,
-	"review":      true,
+	"deferred":    true,
+	"closed":      true,
 }
 
 type taskStatusRequest struct {

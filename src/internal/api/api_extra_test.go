@@ -540,7 +540,7 @@ func TestHandleTaskStatusNoTaskManager(t *testing.T) {
 	require.NoError(t, st.Set("registration_token", "tok"))
 
 	r := httptest.NewRequest(http.MethodPost, "/api/tasks/t1/status",
-		strings.NewReader(`{"status":"done"}`))
+		strings.NewReader(`{"status":"closed"}`))
 	r.Header.Set("X-Registration-Token", "tok")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
@@ -553,7 +553,7 @@ func TestHandleTaskStatusSuccess(t *testing.T) {
 	srv.taskManager = &mockTaskManager{}
 
 	r := httptest.NewRequest(http.MethodPost, "/api/tasks/t1/status",
-		strings.NewReader(`{"status":"done","note":"finished"}`))
+		strings.NewReader(`{"status":"closed","note":"finished"}`))
 	r.Header.Set("X-Registration-Token", "tok")
 	r.Header.Set("X-Bot-Name", "mybot")
 	w := httptest.NewRecorder()
@@ -567,7 +567,7 @@ func TestHandleTaskStatusError(t *testing.T) {
 	srv.taskManager = &mockTaskManager{err: errors.New("beads down")}
 
 	r := httptest.NewRequest(http.MethodPost, "/api/tasks/t1/status",
-		strings.NewReader(`{"status":"done"}`))
+		strings.NewReader(`{"status":"closed"}`))
 	r.Header.Set("X-Registration-Token", "tok")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)

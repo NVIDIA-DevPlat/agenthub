@@ -137,6 +137,9 @@ func cmdServe(_ []string) error {
 			slog.Warn("beads unavailable, kanban will show empty board", "error", beadsErr)
 			kb = &simpleKanbanBuilder{cfg: cfg.Kanban}
 		} else {
+			if err := bc.EnsureInitialized(ctx, "AH"); err != nil {
+				slog.Warn("beads init failed", "error", err)
+			}
 			beadsClient = bc
 			kb = &beadsKanbanBuilder{storage: bc.Storage(), columns: cfg.Kanban.Columns}
 		}
