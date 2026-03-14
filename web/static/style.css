@@ -565,7 +565,7 @@ code, .mono {
   right: 0;
   width: min(720px, 100vw);
   height: 100vh;
-  background: var(--surface);
+  background: var(--bg-surface);
   border-left: 1px solid var(--border);
   box-shadow: -4px 0 24px rgba(0,0,0,0.4);
   z-index: 201;
