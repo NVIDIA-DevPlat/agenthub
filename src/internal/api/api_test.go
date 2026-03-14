@@ -76,6 +76,11 @@ func testTemplates(t *testing.T) map[string]*template.Template {
 <h1>Kanban</h1>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 </body></html>{{end}}`},
+		{"task-create.html", `
+{{define "layout.html"}}<!DOCTYPE html><html><body>
+<h1>New Task</h1>
+{{with .Data}}{{range .Columns}}<option>{{.}}</option>{{end}}{{end}}
+</body></html>{{end}}`},
 		{"secrets.html", `
 {{define "layout.html"}}<!DOCTYPE html><html><body>
 <h1>Secrets</h1>
