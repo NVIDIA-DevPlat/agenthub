@@ -70,7 +70,7 @@ func cmdClientCreate(args []string) error {
 		fmt.Printf("\nUsing model: %s\n", llmModel)
 		fmt.Printf("Endpoint:    %s\n\n", llmBaseURL)
 
-		llmAPIKey = promptSecret("NVIDIA API key: ")
+		llmAPIKey = promptSecretR(r, "NVIDIA API key: ")
 		if llmAPIKey == "" {
 			return fmt.Errorf("API key is required for the NVIDIA Inference backend")
 		}
@@ -102,7 +102,7 @@ func cmdClientCreate(args []string) error {
 	}
 
 	// ── 4. Registration token ─────────────────────────────────────────────────
-	regToken := promptSecret("Registration token: ")
+	regToken := promptSecretR(r, "Registration token: ")
 	if regToken == "" {
 		return fmt.Errorf("registration token is required — run 'agenthub secret get registration_token' on the server")
 	}
@@ -173,7 +173,9 @@ func prompt(r *bufio.Reader, question string) string {
 	return strings.TrimRight(line, "\r\n")
 }
 
-func promptSecret(question string) string {
+// promptSecretR reads a secret, using the shared reader r when not on a TTY
+// (so it doesn't fight with prompt() over stdin buffering).
+func promptSecretR(r *bufio.Reader, question string) string {
 	fmt.Print(question)
 	fd := int(os.Stdin.Fd())
 	if term.IsTerminal(fd) {
@@ -184,8 +186,7 @@ func promptSecret(question string) string {
 		}
 		return string(pw)
 	}
-	// Non-TTY fallback (pipes / CI).
-	r := bufio.NewReader(os.Stdin)
+	// Non-TTY: use the shared reader to avoid double-buffering stdin.
 	line, _ := r.ReadString('\n')
 	return strings.TrimRight(line, "\r\n")
 }
