@@ -60,16 +60,25 @@ If the IP ever changes: `az vm list-ip-addresses --output table`, update the ent
 make test
 git push origin main
 
-# 2. On the VM — pull, build with Makefile, install, restart
+# 2. On the VM — pull, build, stop service, install, start
+#    (Must stop before cp — Linux locks running binaries)
 ssh agenthub "
   cd ~/Src/agenthub &&
   git pull &&
   make build &&
+  sudo systemctl stop agenthub &&
   sudo cp agenthub /usr/local/bin/agenthub &&
-  sudo systemctl restart agenthub &&
+  sudo systemctl start agenthub &&
   sudo systemctl status agenthub --no-pager
 "
 ```
+
+> **Stop before copy.** Linux locks running binaries (`Text file busy`).
+> Always stop the service before `sudo cp`, then start it again.
+>
+> Port 8080 is behind Azure NSG — `curl http://20.124.109.29:8080/health`
+> will timeout externally. Check the service is running with `systemctl status`
+> and `journalctl` instead.
 
 `make build` on the VM handles everything: htmx download if missing, CGO flags,
 GOTOOLCHAIN, template/asset embedding, and Version/Build ldflags stamping.
