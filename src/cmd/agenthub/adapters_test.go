@@ -382,7 +382,8 @@ func TestNoopAIChatterRespond(t *testing.T) {
 	n := &noopAIChatter{}
 	resp, err := n.Respond(context.Background(), "hello", "ch1")
 	require.NoError(t, err)
-	require.Contains(t, resp, "OpenAI not configured")
+	// noop returns empty string; the handler applies a fallback message to the user.
+	require.Empty(t, resp)
 }
 
 func TestOpenaiChatterRespond(t *testing.T) {

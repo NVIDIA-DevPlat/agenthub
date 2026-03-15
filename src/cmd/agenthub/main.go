@@ -814,5 +814,5 @@ func (c *openaiChatter) Respond(ctx context.Context, msg, _ string) (string, err
 type noopAIChatter struct{}
 
 func (n *noopAIChatter) Respond(_ context.Context, _ string, _ string) (string, error) {
-	return "(OpenAI not configured — set openai_api_key in Secrets)", nil
+	return "", nil // filtered by isConfigError guard in handler; DM reply uses fallback
 }

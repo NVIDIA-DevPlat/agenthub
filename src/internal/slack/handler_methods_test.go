@@ -311,11 +311,31 @@ func TestHandleAPIEventMessage(t *testing.T) {
 			Type: "message",
 			Data: &slackevents.MessageEvent{
 				Text:    "hello bot",
-				Channel: "D1",
+				Channel: "D1", // DM channel — starts with 'D'
 			},
 		},
 	})
 	require.Equal(t, 1, ai.calls)
+}
+
+// TestHandleAPIEventMessageInChannel verifies that messages in public/private
+// channels (not DMs) are silently ignored to prevent task-creation floods.
+// Production escape (2026-03-14): bot was subscribed to message.channels events
+// causing every message in the usdagent channel to create a new task.
+func TestHandleAPIEventMessageInChannel(t *testing.T) {
+	ai := &mockAIChat{response: "should not be called"}
+	tm := &mockTaskManager{taskID: "ah-1", assignedBot: "bot"}
+	h := newHandlerForTest(t, newDeps(&mockRegistry{}, &mockOpenclawChecker{}, tm, ai))
+	h.handleAPIEvent(context.Background(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Type: "message",
+			Data: &slackevents.MessageEvent{
+				Text:    "hey everyone",
+				Channel: "C0ABCDEFG", // public channel — starts with 'C'
+			},
+		},
+	})
+	require.Equal(t, 0, ai.calls, "should not respond to public channel messages")
 }
 
 func TestHandleAPIEventMessageSubtype(t *testing.T) {

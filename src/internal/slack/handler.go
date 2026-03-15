@@ -185,6 +185,9 @@ func (h *Handler) handleAPIEvent(ctx context.Context, event slackevents.EventsAP
 			slog.Error("slack: AI error", "error", err)
 			return
 		}
+		if response == "" || isConfigError(response) {
+			response = ":wave: I'm agenthub. DM me with your task or use `/agenthub <task> [@agent]`."
+		}
 		_, _, _ = h.client.PostMessage(ev.Channel,
 			slack.MsgOptionText(response, false),
 			slack.MsgOptionTS(ev.TimeStamp),
@@ -200,6 +203,12 @@ func (h *Handler) handleAPIEvent(ctx context.Context, event slackevents.EventsAP
 		if ev.BotID != "" {
 			return
 		}
+		// Only handle direct messages (channel IDs start with 'D').
+		// Messages in public/private channels are handled via app_mention events
+		// to avoid creating tasks from every message the bot happens to see.
+		if len(ev.Channel) == 0 || ev.Channel[0] != 'D' {
+			return
+		}
 		// BOTJILE: every DM to agenthub that looks like work gets a bead.
 		// If the message starts with "@botname " route it to that specific agent;
 		// otherwise route to any available bot.
@@ -210,27 +219,34 @@ func (h *Handler) handleAPIEvent(ctx context.Context, event slackevents.EventsAP
 			if err != nil {
 				slog.Warn("slack: could not create task from DM", "error", err)
 			} else {
-				taskRef = fmt.Sprintf(":white_check_mark: Task `%s` created", taskID)
-				if assignedBot != "" {
-					taskRef += fmt.Sprintf(" and routed to *%s*", assignedBot)
-					// Queue the original DM in the assigned bot's inbox so the
-					// agent can read the full text (not just the task title).
-					if h.deps.Inbox != nil {
-						h.deps.Inbox.Enqueue(assignedBot, ev.User, ev.Channel, taskText)
-					}
+				taskRef = fmt.Sprintf(":white_check_mark: Task `%s` created and assigned to *%s*.\n", taskID, assignedBot)
+				// Queue the original DM in the assigned bot's inbox so the
+				// agent can read the full text (not just the task title).
+				if assignedBot != "" && h.deps.Inbox != nil {
+					h.deps.Inbox.Enqueue(assignedBot, ev.User, ev.Channel, taskText)
 				}
-				taskRef += ".\n"
 			}
 		}
+		// Only append AI response if it adds value (non-empty, not an error notice).
 		response, err := h.deps.AIChat.Respond(ctx, ev.Text, ev.Channel)
 		if err != nil {
 			slog.Error("slack: AI error in DM", "error", err)
-			return
 		}
-		_, _, _ = h.client.PostMessage(ev.Channel,
-			slack.MsgOptionText(taskRef+response, false),
-		)
+		msg := taskRef
+		if err == nil && response != "" && !isConfigError(response) {
+			msg += response
+		}
+		if msg == "" {
+			msg = ":receipt: Got it — your request has been queued."
+		}
+		_, _, _ = h.client.PostMessage(ev.Channel, slack.MsgOptionText(msg, false))
 	}
+}
+
+// isConfigError returns true for internal configuration error messages that
+// should not be surfaced to end users in Slack.
+func isConfigError(s string) bool {
+	return len(s) > 0 && (indexOf(s, "not configured") >= 0 || indexOf(s, "openai_api_key") >= 0)
 }
 
 // parseAgentPrefix checks if text starts with "@botname " and extracts the bot
