@@ -364,6 +364,18 @@ func (db *DB) UpdateAlive(ctx context.Context, id string, alive bool) error {
 	return err
 }
 
+// UpdateAliveByName updates is_alive and last_seen_at for an instance by name.
+func (db *DB) UpdateAliveByName(ctx context.Context, name string, alive bool) error {
+	now := time.Now()
+	_, err := db.ExecContext(ctx, `
+		UPDATE openclaw_instances
+		SET is_alive = ?, last_seen_at = ?, updated_at = ?
+		WHERE name = ?`,
+		boolToInt(alive), now, now, name,
+	)
+	return err
+}
+
 // UpdateChatty sets the chatty flag for an instance.
 func (db *DB) UpdateChatty(ctx context.Context, name, channelID string, chatty bool) error {
 	_, err := db.ExecContext(ctx, `

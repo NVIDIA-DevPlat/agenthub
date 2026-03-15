@@ -37,6 +37,11 @@ type BotDeleter interface {
 	DeleteInstanceByName(ctx context.Context, name string) error
 }
 
+// BotAliveUpdater persists heartbeat liveness to the database.
+type BotAliveUpdater interface {
+	UpdateAliveByName(ctx context.Context, name string, alive bool) error
+}
+
 // BotChecker performs an on-demand liveness probe for a named bot.
 type BotChecker interface {
 	CheckBot(ctx context.Context, name string) (alive bool, err error)
