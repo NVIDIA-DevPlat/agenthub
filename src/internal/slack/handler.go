@@ -195,6 +195,11 @@ func (h *Handler) handleAPIEvent(ctx context.Context, event slackevents.EventsAP
 		if !ok || ev.SubType != "" {
 			return
 		}
+		// Skip messages from bots/apps to prevent feedback loops where an agent's
+		// reply DM gets treated as a new task and re-routed back to the agent.
+		if ev.BotID != "" {
+			return
+		}
 		// BOTJILE: every DM to agenthub that looks like work gets a bead.
 		// Create the task first so it's on the board before we even respond.
 		var taskRef string

@@ -383,6 +383,31 @@ func TestHandleAPIEventMessageAIError(t *testing.T) {
 	})
 }
 
+// TestHandleAPIEventMessageFromBot verifies that messages with a bot_id are
+// silently ignored, preventing the feedback loop where an agent's Slack reply
+// is treated as a new task and re-routed back to the same agent.
+// Production escape (2026-03-14): loop.sh agents posted DM replies; the message
+// handler created new tasks from those replies, routing them back to the agent,
+// which replied again — producing 40+ chained "Task X created and routed" beads.
+func TestHandleAPIEventMessageFromBot(t *testing.T) {
+	tm := &mockTaskManager{taskID: "ah-1", assignedBot: "mybot"}
+	ai := &mockAIChat{response: "reply"}
+	h := newHandlerForTest(t, newDeps(&mockRegistry{}, &mockOpenclawChecker{}, tm, ai))
+
+	h.handleAPIEvent(context.Background(), slackevents.EventsAPIEvent{
+		InnerEvent: slackevents.EventsAPIInnerEvent{
+			Type: "message",
+			Data: &slackevents.MessageEvent{
+				Text:    "task complete: processed 3 assets",
+				Channel: "D1",
+				BotID:   "BBOT123", // message from an agent/bot
+			},
+		},
+	})
+	// No task creation and no AI response for bot messages.
+	require.Equal(t, 0, ai.calls, "AI should not be called for bot messages")
+}
+
 // --- stripMention, indexOf ---
 
 func TestStripMentionWithMention(t *testing.T) {

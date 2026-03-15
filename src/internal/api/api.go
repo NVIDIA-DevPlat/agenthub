@@ -10,6 +10,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -774,24 +775,46 @@ func (s *Server) handleKanbanTaskAssign(w http.ResponseWriter, r *http.Request) 
 		if agentID != "" {
 			prefix := extractBeadsPrefix(issueID)
 			projectID := ""
+			projectName := ""
 			if prefix != "" {
 				if pdb := s.projectDB(); pdb != nil {
 					if project, err := pdb.GetProjectByBeadsPrefix(r.Context(), prefix); err == nil && project != nil {
 						projectID = project.ID
+						projectName = project.Name
 						// Auto-grant agent to project.
 						_ = pdb.AddProjectAgent(r.Context(), projectID, agentID, "system")
 					}
 				}
 			}
 			if assignmentID, err := newAPIUUID(); err == nil {
-				_ = adb.CreateTaskAssignment(r.Context(), dolt.TaskAssignment{
+				if createErr := adb.CreateTaskAssignment(r.Context(), dolt.TaskAssignment{
 					ID:         assignmentID,
 					TaskID:     issueID,
 					ProjectID:  projectID,
 					AgentID:    agentID,
 					AssignedBy: "system",
 					AssignedAt: time.Now().UTC(),
-				})
+				}); createErr == nil {
+					// Enqueue inbox message so the agent learns about this assignment.
+					credURL := ""
+					if s.publicURL != "" {
+						credURL = s.publicURL + "/api/credentials/" + assignmentID
+					}
+					taskTitle := issueID
+					if task, taskErr := s.taskManager.GetTask(r.Context(), issueID); taskErr == nil {
+						taskTitle = task.Title
+					}
+					tc := &TaskContext{
+						TaskAssignmentID: assignmentID,
+						TaskID:           issueID,
+						ProjectID:        projectID,
+						ProjectName:      projectName,
+						CredentialURL:    credURL,
+					}
+					text := fmt.Sprintf("New task assigned: [%s] %s", issueID, taskTitle)
+					s.inbox.EnqueueWithContext(assignee, "system", "", text, tc)
+					slog.Info("task assigned to agent", "assignee", assignee, "task_id", issueID, "assignment_id", assignmentID)
+				}
 			}
 		}
 	}

@@ -40,6 +40,8 @@ AI agent sessions that span multiple commits get a narrative section below the l
 | `8fa11cb` | jordanh `jordanh@nvidia.com` | 2026-03-14 | Fix MEMORY.md: updated placeholder hash to real commit hash for 900c96a. |
 | `e8dc270` | jordanh `jordanh@nvidia.com` | 2026-03-14 | Task detail slide-over panel: clicking a kanban card pops a full-field editor; "+ Add" opens the full create form in the same panel; Save/Cancel/Close with dirty-state detection. |
 
+| `(pending)` | Claude Sonnet 4.6 | 2026-03-14 | Fix agent task-assignment loop: enqueue inbox message on kanban assign + block bot DM feedback loop that was creating 40+ chained tasks. |
+
 ---
 
 ## Session Narratives
