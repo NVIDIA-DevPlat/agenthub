@@ -203,6 +203,14 @@ func (h *Handler) handleAPIEvent(ctx context.Context, event slackevents.EventsAP
 		if ev.BotID != "" {
 			return
 		}
+		// Check if this message is in a dedicated agent channel. If so, route
+		// it directly to that agent's inbox without creating a task or calling AI.
+		if len(ev.Channel) > 0 && ev.Channel[0] != 'D' && h.deps.AgentChannelLookup != nil && h.deps.Inbox != nil {
+			if agentName, err := h.deps.AgentChannelLookup.AgentBySlackChannel(ctx, ev.Channel); err == nil && agentName != "" {
+				h.deps.Inbox.Enqueue(agentName, ev.User, ev.Channel, ev.Text)
+				return
+			}
+		}
 		// Only handle direct messages (channel IDs start with 'D').
 		// Messages in public/private channels are handled via app_mention events
 		// to avoid creating tasks from every message the bot happens to see.

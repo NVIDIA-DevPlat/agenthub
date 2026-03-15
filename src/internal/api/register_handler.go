@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -96,9 +97,25 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create a dedicated Slack channel for this agent (best-effort).
+	agentChannelID := ""
+	if chID, err := s.createSlackChannel(r.Context(), "agent-"+req.Name); err == nil {
+		agentChannelID = chID
+		if s.agentSlackUpdater != nil {
+			if err := s.agentSlackUpdater.UpdateAgentSlackChannel(r.Context(), req.Name, chID); err != nil {
+				slog.Warn("register: failed to store agent slack channel", "agent", req.Name, "error", err)
+			}
+		}
+	} else {
+		slog.Warn("register: could not create agent slack channel", "agent", req.Name, "error", err)
+	}
+
 	// Announce the new agent to the default Slack channel.
 	if s.announcer != nil && s.announceChannel != "" {
 		msg := fmt.Sprintf(":robot_face: New agent *%s* has been registered and is ready for tasks!", req.Name)
+		if agentChannelID != "" {
+			msg += fmt.Sprintf("\nPost directly in <#%s> to send it a message.", agentChannelID)
+		}
 		if s.publicURL != "" {
 			msg += fmt.Sprintf("\n<%s/admin/bots|View dashboard>", s.publicURL)
 		}

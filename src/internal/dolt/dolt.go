@@ -289,6 +289,11 @@ var migrations = []migration{
 			PRIMARY KEY (key_name)
 		)`,
 	},
+	{
+		Name: "013_agent_slack_channel",
+		SQL: `ALTER TABLE openclaw_instances
+			ADD COLUMN slack_channel_id VARCHAR(255) NOT NULL DEFAULT ''`,
+	},
 }
 
 // Instance represents a registered openclaw bot.
@@ -529,6 +534,32 @@ func scanInstance(s scanner) (*Instance, error) {
 	inst.Chatty = chatty != 0
 	inst.IsAlive = isAlive != 0
 	return &inst, nil
+}
+
+// UpdateAgentSlackChannel stores the dedicated Slack channel ID for an agent.
+func (db *DB) UpdateAgentSlackChannel(ctx context.Context, name, channelID string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE openclaw_instances SET slack_channel_id = ? WHERE name = ?`,
+		channelID, name,
+	)
+	return err
+}
+
+// GetAgentBySlackChannel returns the agent name for a given Slack channel ID,
+// or ("", nil) if no agent is registered to that channel.
+func (db *DB) GetAgentBySlackChannel(ctx context.Context, channelID string) (string, error) {
+	var name string
+	err := db.QueryRowContext(ctx, `
+		SELECT name FROM openclaw_instances WHERE slack_channel_id = ? LIMIT 1`,
+		channelID,
+	).Scan(&name)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("looking up agent by slack channel: %w", err)
+	}
+	return name, nil
 }
 
 func boolToInt(b bool) int {

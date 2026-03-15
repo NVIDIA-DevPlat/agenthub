@@ -138,15 +138,21 @@ type InboxEnqueuer interface {
 	Enqueue(botName, from, channel, text string) string
 }
 
+// AgentChannelLookup resolves a Slack channel ID to the agent registered to it.
+type AgentChannelLookup interface {
+	AgentBySlackChannel(ctx context.Context, channelID string) (string, error)
+}
+
 // Deps holds the dependencies injected into the Slack handler.
 // All fields are interfaces to allow easy mocking in tests.
 type Deps struct {
-	BotRegistry   BotRegistry
-	TaskManager   TaskManager
-	AIChat        AIChatter
-	OpenclawCheck OpenclawChecker
-	Inbox         InboxEnqueuer // optional; routes DMs to per-agent inbox
-	Config        SlackConfig
+	BotRegistry        BotRegistry
+	TaskManager        TaskManager
+	AIChat             AIChatter
+	OpenclawCheck      OpenclawChecker
+	Inbox              InboxEnqueuer      // optional; routes DMs to per-agent inbox
+	AgentChannelLookup AgentChannelLookup // optional; routes per-agent channel messages directly to inbox
+	Config             SlackConfig
 }
 
 // SlackConfig holds the Slack-specific config values needed by the handler.

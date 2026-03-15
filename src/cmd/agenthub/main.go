@@ -205,6 +205,7 @@ func cmdServe(_ []string) error {
 		api.WithDeleter(db),
 		api.WithChecker(checker),
 		api.WithRegistrar(db),
+		api.WithAgentSlackChannelUpdater(db),
 		api.WithHealthProber(&openclawProber{cfg: cfg.Openclaw, timeout: cfg.Openclaw.LivenessTimeout}),
 		api.WithCapacityReader(db),
 		api.WithKanbanColumns(cfg.Kanban.Columns),
@@ -252,11 +253,12 @@ func cmdServe(_ []string) error {
 		}
 
 		slackDeps := &islack.Deps{
-			BotRegistry:   &doltBotRegistry{db: db, cfg: cfg.Openclaw},
-			TaskManager:   &slackTaskManager{beads: beadsClient, db: db},
-			AIChat:        aiChat,
-			OpenclawCheck: prober,
-			Inbox:         srv.Inbox(),
+			BotRegistry:        &doltBotRegistry{db: db, cfg: cfg.Openclaw},
+			TaskManager:        &slackTaskManager{beads: beadsClient, db: db},
+			AIChat:             aiChat,
+			OpenclawCheck:      prober,
+			Inbox:              srv.Inbox(),
+			AgentChannelLookup: &doltAgentChannelLookup{db: db},
 			Config: islack.SlackConfig{
 				CommandPrefix:     cfg.Slack.CommandPrefix,
 				AgenthubURL:       cfg.Server.PublicURL,
@@ -876,6 +878,14 @@ func (m *slackTaskManager) CreateAndRoute(ctx context.Context, desc, botName, ac
 		}
 	}
 	return issue.ID, assigned, nil
+}
+
+// ── doltAgentChannelLookup: maps Slack channel ID → agent name ────────────────
+
+type doltAgentChannelLookup struct{ db *dolt.DB }
+
+func (l *doltAgentChannelLookup) AgentBySlackChannel(ctx context.Context, channelID string) (string, error) {
+	return l.db.GetAgentBySlackChannel(ctx, channelID)
 }
 
 // ── slackReplier: posts agent replies to Slack via the bot token ──────────────

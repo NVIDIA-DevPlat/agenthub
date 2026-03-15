@@ -65,6 +65,11 @@ type BotRegistrar interface {
 	CreateInstance(ctx context.Context, inst dolt.Instance) error
 }
 
+// AgentSlackChannelUpdater stores the dedicated Slack channel ID for a registered agent.
+type AgentSlackChannelUpdater interface {
+	UpdateAgentSlackChannel(ctx context.Context, name, channelID string) error
+}
+
 // BotAnnouncer posts a message to a Slack channel (used for registration announcements).
 type BotAnnouncer interface {
 	PostMessage(ctx context.Context, channel, text string) error
@@ -183,6 +188,9 @@ type Server struct {
 	// Public URL used for Slack messages and credential URLs.
 	publicURL string
 
+	// agentSlackUpdater stores the per-agent Slack channel ID after registration.
+	agentSlackUpdater AgentSlackChannelUpdater // optional
+
 	// announcer posts bot registration announcements to Slack.
 	announcer      BotAnnouncer
 	announceChannel string // Slack channel ID for registration announcements
@@ -205,6 +213,12 @@ func WithChecker(c BotChecker) ServerOption { return func(s *Server) { s.checker
 
 // WithRegistrar sets the optional BotRegistrar for the auto-registration endpoint.
 func WithRegistrar(r BotRegistrar) ServerOption { return func(s *Server) { s.registrar = r } }
+
+// WithAgentSlackChannelUpdater sets the optional updater that records each agent's
+// dedicated Slack channel ID after registration.
+func WithAgentSlackChannelUpdater(u AgentSlackChannelUpdater) ServerOption {
+	return func(s *Server) { s.agentSlackUpdater = u }
+}
 
 // WithHealthProber sets the optional HealthProber used during bot registration.
 func WithHealthProber(hp HealthProber) ServerOption { return func(s *Server) { s.healthProber = hp } }
