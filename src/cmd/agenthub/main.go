@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -67,11 +68,32 @@ func run(args []string) error {
 	}
 }
 
-func cmdServe(_ []string) error {
-	cfgPath := "config.yaml"
+// resolveConfigPath returns the first config file that exists, checking:
+//  1. $AGENTHUB_CONFIG env var
+//  2. /etc/agenthub/config.yaml  (system install)
+//  3. ~/.agenthub/config.yaml    (user install)
+//  4. ./config.yaml              (development / current directory)
+func resolveConfigPath() string {
 	if v := os.Getenv("AGENTHUB_CONFIG"); v != "" {
-		cfgPath = v
+		return v
 	}
+	candidates := []string{
+		"/etc/agenthub/config.yaml",
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".agenthub", "config.yaml"))
+	}
+	candidates = append(candidates, "config.yaml")
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return "config.yaml" // let Load produce the "not found" error
+}
+
+func cmdServe(_ []string) error {
+	cfgPath := resolveConfigPath()
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -300,10 +322,7 @@ func (n *noopBotLister) ListAllInstances(_ context.Context) ([]*dolt.Instance, e
 }
 
 func cmdSetup(_ []string) error {
-	cfgPath := "config.yaml"
-	if v := os.Getenv("AGENTHUB_CONFIG"); v != "" {
-		cfgPath = v
-	}
+	cfgPath := resolveConfigPath()
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -368,10 +387,7 @@ func cmdSecret(args []string) error {
 		return fmt.Errorf("usage: agenthub secret <set|get|list> [key] [value]")
 	}
 
-	cfgPath := "config.yaml"
-	if v := os.Getenv("AGENTHUB_CONFIG"); v != "" {
-		cfgPath = v
-	}
+	cfgPath := resolveConfigPath()
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
