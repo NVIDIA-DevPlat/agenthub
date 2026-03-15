@@ -1,62 +1,71 @@
 # agenthub
 
-**agenthub** is a Go service that acts as a hub between a Slack workspace and a fleet of [openclaw](https://github.com/NVIDIA-DevPlat/openclaw) AI agent instances. It handles bot registration, liveness monitoring, work item routing, and provides an admin web UI for managing the full agent ecosystem.
+**agenthub** is a Go service that acts as a hub between a Slack workspace and a fleet of [openclaw](https://github.com/NVIDIA-DevPlat/openclaw) AI agent instances. It handles agent registration, liveness monitoring, work item routing, per-agent Slack channels, and provides an admin web UI for managing the full agent ecosystem.
 
 ## Features
 
-### Bot Registry
-- Register openclaw AI agent instances by Slack channel using `/agenthub bind host:port name`
-- Each bot is bound to the channel where it was registered; only the binding user can remove it
-- Remove bots with `/agenthub remove <name>`
-- List all bots in the current channel with alive/dead status via `/agenthub list`
+### Agent Registry
+- Register openclaw AI agent instances via `POST /api/register` (registration-token authenticated)
+- Agents report liveness via `POST /api/heartbeat`; the kanban board shows live status
+- Name conflict detection with auto-suggested alternatives on collision
+- Remove agents via the admin UI
 
-### Liveness Monitoring
-- Background liveness checker polls all registered bots on a configurable interval (default 60s)
-- Calls each bot's `GET /health` endpoint; marks it alive or dead based on the response
-- State-change transitions (alive→dead, dead→alive) are logged via `slog`
+### Per-Agent Slack Channels
+- On registration, agenthub automatically creates a dedicated `#agent-<name>` Slack channel
+- Users can post directly in that channel — messages are routed straight to the agent's inbox
+- No `@botname` prefix needed; no task creation overhead
+- Channel ID is announced in the default Slack channel on registration
+
+### Agent Inbox
+- Every agent has a persistent inbox backed by Dolt
+- Agents poll `GET /api/inbox?bot_name=<name>` to receive messages
+- Agents acknowledge messages via `POST /api/inbox/{id}/ack`
+- Slack DMs to agenthub and per-agent channel messages both enqueue to the inbox
+- Agent replies posted back to the originating Slack thread via `POST /api/inbox/{id}/reply`
 
 ### Work Item Routing
-- Create Beads issues directly from Slack: `/agenthub <task description> [@botname]`
-- Optionally route to a specific bot by name, or let agenthub assign to any alive bot
-- All work items are tracked as [Beads](https://github.com/steveyegge/beads) issues in an embedded Dolt database
+- Create Beads issues from Slack: `/agenthub <task description> [@botname]`
+- Optionally route to a specific agent by name, or let agenthub assign to any alive agent
+- All work items tracked as [Beads](https://github.com/steveyegge/beads) issues in an embedded Dolt database
+- Assign tasks to agents by dragging them on the kanban board
 
 ### Kanban Board
-- Admin web UI includes a kanban board backed by Beads issues
-- Columns are configurable in `config.yaml` (default: backlog → ready → in_progress → review → done)
+- Admin web UI kanban board backed by Beads issues
+- Columns configurable in `config.yaml` (default: backlog → ready → in_progress → review → done)
 - Falls back to an empty board if Beads is unavailable
+
+### Projects
+- Create and manage projects in the admin UI
+- Each project auto-creates a dedicated Slack channel (`#project-<name>`)
+- Assign agents and resources to projects
 
 ### Slack Integration
 - Uses Socket Mode — no public HTTP endpoint required
 - Handles slash commands, `app_mention` events, and DMs
-- DM the bot directly to check status, create work items, or ask questions in natural language
+- DM the bot directly to create work items or ask questions in natural language
+- Per-agent channels route messages directly to agent inboxes
 
 ### OpenAI-Powered Intelligence
-- Uses OpenAI (default: `gpt-4o-mini`) to understand natural language Slack messages
+- Uses a configurable OpenAI-compatible endpoint (default: `gpt-4o-mini`)
 - Powers responses to direct mentions and DMs
-- Model, max tokens, and system prompt are all configurable
+- Model, max tokens, and system prompt all configurable at runtime via the admin UI
+- System prompt and other settings can be updated live without restart
 
-### Bot Directives
-- On binding, sets `mention_only: true` on the bot via `POST /directives`
-- Toggle chatty mode (responds to all messages, not just @mentions): `/agenthub chatty <name>`
+### Admin Settings API
+- `PUT /api/settings/{key}` — update any runtime setting immediately (no restart)
+- `GET /api/settings` — list all stored setting keys
+- Settings stored encrypted in Dolt; changes propagate to all watchers in-memory
 
-### Admin Web UI
-- Session-based admin UI served on the configured HTTP address
-- Dashboard with bot status overview
-- Bot list with per-bot remove and liveness check actions
-- Kanban board for work item tracking
-- Secrets manager: store OpenAI API key, Slack tokens — encrypted at rest, never in config files
-- All static assets and templates embedded in the binary
-
-### Encrypted Secrets Store
-- All secrets (API keys, tokens, password hash, session key) stored in an AES-256-GCM encrypted file
-- Encryption key derived from the admin password via Argon2id
-- Store path is configurable; defaults to `~/.agenthub/secrets.enc`
-- Secrets are never written to `config.yaml` or environment variables
+### Encrypted Settings Store
+- All secrets (API keys, tokens, password hash, session key) stored in the Dolt `settings` table
+- Per-row AES-256-GCM encryption; key derived from admin password via Argon2id
+- Auto-migrates from legacy `secrets.enc` file on first boot
+- Live updates: `PUT /api/settings/{key}` takes effect immediately
 
 ### Security
 - Admin password hashed with bcrypt
-- Random 32-byte session signing secret generated at setup time
-- Encrypted store unlocked at startup by prompting for the admin password (echo-suppressed on TTY)
+- Random 32-byte session signing secret generated at first-run setup
+- Admin password prompted on startup (echo-suppressed on TTY); `AGENTHUB_ADMIN_PASSWORD` env var for non-interactive/service deployments
 - Session cookie with configurable name
 
 ---
@@ -67,7 +76,7 @@
 |-------------|---------|-------|
 | Go | 1.25.8+ | CGO must be enabled |
 | ICU4C | any recent | Required by Dolt's embedded regex engine |
-| Dolt SQL server | latest | For agenthub's bot registry schema |
+| Dolt SQL server | latest | For agenthub's bot registry, settings, and inbox |
 | Slack App | — | Socket Mode + required scopes |
 
 ### Install ICU4C
@@ -112,17 +121,23 @@ The Makefile automatically detects the Homebrew ICU4C prefix and sets the requir
 
 ## Setup (first run)
 
+agenthub detects first-run automatically. Start the server:
+
 ```bash
-./agenthub setup
-# or: make setup
+./agenthub serve
 ```
 
-You will be prompted to choose an admin password. This will:
+On first run (Dolt `settings` table is empty), the server starts in **setup mode** and redirects all admin requests to `/admin/setup`. Fill in the setup form to choose an admin password. This will:
 
 1. Derive an AES-256-GCM encryption key from the password (Argon2id)
 2. Generate a random session signing secret
 3. Hash the password with bcrypt
-4. Write `~/.agenthub/secrets.enc`
+4. Write all values to the Dolt `settings` table (encrypted)
+5. Return a registration token for agent API calls
+
+On subsequent starts the password is required to unlock the settings:
+- **Interactive:** prompted on the terminal (echo-suppressed)
+- **Service/non-interactive:** set `AGENTHUB_ADMIN_PASSWORD=<password>` in the environment
 
 ---
 
@@ -140,15 +155,13 @@ export AGENTHUB_CONFIG=/etc/agenthub/config.yaml
 | Section | Key | Default | Description |
 |---------|-----|---------|-------------|
 | `server` | `http_addr` | `:8080` | Admin UI listen address |
+| `server` | `public_url` | `""` | Public base URL (used in Slack links) |
 | `server` | `read_timeout` | `30s` | HTTP read timeout |
 | `server` | `write_timeout` | `30s` | HTTP write timeout |
-| `store` | `path` | `~/.agenthub/secrets.enc` | Encrypted secrets file |
 | `slack` | `command_prefix` | `/agenthub` | Slash command prefix |
-| `slack` | `heartbeat_interval` | `60s` | Slack connection heartbeat log interval |
-| `openclaw` | `liveness_interval` | `60s` | How often to poll all bots |
-| `openclaw` | `liveness_timeout` | `10s` | Per-bot health check timeout |
-| `openclaw` | `health_path` | `/health` | Health endpoint on each bot |
-| `openclaw` | `directives_path` | `/directives` | Directives endpoint on each bot |
+| `slack` | `default_channel` | `""` | Channel ID for registration announcements |
+| `openclaw` | `liveness_interval` | `60s` | How often to poll all agents |
+| `openclaw` | `liveness_timeout` | `10s` | Per-agent health check timeout |
 | `openai` | `model` | `gpt-4o-mini` | OpenAI model for Slack intelligence |
 | `openai` | `max_tokens` | `1024` | Max tokens per OpenAI response |
 | `beads` | `db_path` | `.beads/dolt` | Beads/Dolt embedded database path |
@@ -156,6 +169,13 @@ export AGENTHUB_CONFIG=/etc/agenthub/config.yaml
 | `kanban` | `columns` | `[backlog, ready, in_progress, review, done]` | Kanban column names and order |
 | `log` | `level` | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `log` | `format` | `json` | Log format: `json` or `text` |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `AGENTHUB_CONFIG` | Override path to `config.yaml` |
+| `AGENTHUB_ADMIN_PASSWORD` | Admin password for non-interactive startup (service deployments) |
 
 ---
 
@@ -170,17 +190,19 @@ export AGENTHUB_CONFIG=/etc/agenthub/config.yaml
    | `commands` | Respond to slash commands |
    | `app_mentions:read` | Receive @mentions |
    | `im:history` | Read DMs |
-   | `channels:read` | Channel info for bot binding |
+   | `channels:read` | Channel info |
+   | `channels:manage` | Create public channels for agents/projects |
+   | `groups:write` | Create private channels for agents/projects |
 
-3. Under **Basic Information** → **App-Level Tokens**, generate a token with the `connections:write` scope. This is your `xapp-` token.
+3. Under **Basic Information** → **App-Level Tokens**, generate a token with `connections:write`. This is your `xapp-` token.
 4. Under **Settings** → **Socket Mode**, enable Socket Mode.
 5. Under **Slash Commands**, create `/agenthub` (any placeholder URL is fine for Socket Mode).
 6. Install the app to your workspace and copy the `xoxb-` Bot Token.
 
-After running `./agenthub setup`, log into the admin UI and go to **Secrets** to enter:
+After the first-run setup, log into the admin UI and go to **Secrets** to enter:
 - `slack_bot_token` — your `xoxb-` token
 - `slack_app_token` — your `xapp-` token
-- `openai_api_key` — your OpenAI API key
+- `openai_api_key` — your OpenAI API key (or compatible endpoint key)
 
 ---
 
@@ -190,21 +212,14 @@ After running `./agenthub setup`, log into the admin UI and go to **Secrets** to
 ./agenthub serve
 ```
 
-You will be prompted for the admin password to unlock the encrypted store. On a real terminal, echo is suppressed. The admin UI will be available at `http://localhost:8080`.
+On a real terminal, the admin password is prompted with echo suppressed. For service deployments set `AGENTHUB_ADMIN_PASSWORD`. The admin UI will be available at `http://localhost:8080`.
 
 ### Subcommands
 
 | Command | Description |
 |---------|-------------|
 | `agenthub serve` | Start the server (default) |
-| `agenthub setup` | First-run: set admin password and initialize encrypted store |
 | `agenthub version` | Print version and build info |
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `AGENTHUB_CONFIG` | Override path to `config.yaml` |
 
 ---
 
@@ -214,13 +229,15 @@ All commands use the prefix `/agenthub` (configurable).
 
 | Command | Description |
 |---------|-------------|
-| `/agenthub bind host:port name` | Register an openclaw bot in this channel |
-| `/agenthub remove name` | Unregister a bot (owner only) |
+| `/agenthub bind host:port name` | Register an openclaw bot in this channel (legacy) |
+| `/agenthub remove name` | Unregister a bot |
 | `/agenthub list` | List bots in this channel with alive/dead status |
-| `/agenthub chatty name` | Toggle chatty mode (bot responds to all messages, not just @mentions) |
-| `/agenthub <task> [@botname]` | Create a work item, optionally routed to a specific bot |
+| `/agenthub chatty name` | Toggle chatty mode (bot responds to all messages) |
+| `/agenthub <task> [@botname]` | Create a work item, optionally routed to a specific agent |
 
-You can also DM the agenthub bot directly for natural language interaction.
+You can also:
+- **DM** the agenthub bot for natural language interaction and task creation
+- **Post in `#agent-<name>`** to message a specific agent directly (routed to inbox, no task created)
 
 ---
 
@@ -232,13 +249,32 @@ You can also DM the agenthub bot directly for natural language interaction.
 | `GET` | `/admin/login` | Login form |
 | `POST` | `/admin/login` | Authenticate |
 | `POST` | `/admin/logout` | Clear session |
-| `GET` | `/admin/bots` | List all registered bots |
-| `POST` | `/admin/bots/{name}/remove` | Remove a bot |
+| `GET` | `/admin/setup` | First-run setup form |
+| `POST` | `/admin/setup` | Submit first-run setup |
+| `GET` | `/admin/bots` | List all registered agents |
+| `POST` | `/admin/bots/{name}/remove` | Remove an agent |
 | `POST` | `/admin/bots/{name}/check` | Trigger immediate liveness check |
 | `GET` | `/admin/kanban` | Kanban board |
+| `GET` | `/admin/projects` | Project list |
+| `GET` | `/admin/projects/{id}` | Project detail |
 | `GET` | `/admin/secrets` | Secrets manager |
-| `POST` | `/admin/secrets` | Save secrets to encrypted store |
+| `POST` | `/admin/secrets` | Save secrets |
 | `GET` | `/health` | Service health check (unauthenticated) |
+
+## Agent REST API
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `POST` | `/api/register` | Registration token | Register a new agent |
+| `POST` | `/api/heartbeat` | Registration token | Report liveness and status |
+| `GET` | `/api/inbox` | Registration token | Poll pending inbox messages |
+| `POST` | `/api/inbox/{id}/ack` | Registration token | Acknowledge a message |
+| `POST` | `/api/inbox/{id}/reply` | Registration token | Post reply to originating Slack thread |
+| `POST` | `/api/tasks/{id}/status` | Registration token | Update task status |
+| `POST` | `/api/tasks/{id}/log` | Registration token | Append task log entry |
+| `PUT` | `/api/settings/{key}` | Admin session | Update a runtime setting |
+| `GET` | `/api/settings` | Admin session | List setting keys |
+| `GET` | `/api/events` | Admin session | SSE stream of live events |
 
 ---
 
@@ -276,12 +312,12 @@ See [AGENTS.md](AGENTS.md) for contribution guidelines, the development workflow
 ```
 agenthub/
 ├── AGENTS.md                   # Contribution guidelines and commandments
-├── VERSION                     # SEMVER version (currently 0.1.0)
+├── VERSION                     # SEMVER version
 ├── config.yaml                 # All tunable settings
 ├── Makefile
 ├── docs/
 │   ├── architecture.md         # Component diagram and data flows
-│   ├── api.md                  # Openclaw API contract + admin HTTP routes
+│   ├── api.md                  # Agent REST API + admin HTTP routes
 │   ├── configuration.md        # Full configuration reference
 │   ├── deployment.md           # Deployment prerequisites and instructions
 │   └── slack-integration.md    # Slack app setup guide
@@ -293,12 +329,13 @@ agenthub/
 │       ├── auth/               # Session auth, bcrypt, cookie management
 │       ├── beads/              # Beads task tracker wrapper (CGO)
 │       ├── config/             # config.yaml loader
-│       ├── dolt/               # Dolt SQL client and schema migrations
+│       ├── dolt/               # Dolt SQL client, schema migrations, settings store
 │       ├── kanban/             # Kanban board grouping logic
 │       ├── openclaw/           # Openclaw HTTP client and liveness checker
 │       ├── openai/             # OpenAI chat wrapper
+│       ├── settings/           # Reactive in-memory settings cache
 │       ├── slack/              # Slack Socket Mode handler and slash commands
-│       └── store/              # AES-256-GCM encrypted secrets store
+│       └── store/              # Legacy AES-256-GCM encrypted file store
 ├── web/
 │   ├── templates/              # Go HTML templates (embedded in binary)
 │   └── static/                 # CSS and static assets (embedded in binary)
