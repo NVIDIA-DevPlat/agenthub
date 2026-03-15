@@ -58,8 +58,10 @@ type OpenclawConfig struct {
 	DirectivesPath   string        `yaml:"directives_path"`
 }
 
-// OpenAIConfig holds OpenAI client settings.
+// OpenAIConfig holds OpenAI-compatible client settings.
+// Set base_url to use any OpenAI-compatible endpoint (NVIDIA Inference API, etc.)
 type OpenAIConfig struct {
+	BaseURL      string `yaml:"base_url"`      // optional; defaults to api.openai.com
 	Model        string `yaml:"model"`
 	MaxTokens    int    `yaml:"max_tokens"`
 	SystemPrompt string `yaml:"system_prompt"`

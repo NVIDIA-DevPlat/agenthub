@@ -420,7 +420,7 @@ func TestOpenaiChatterRespond(t *testing.T) {
 	// that openaiChatter.Respond properly delegates to Client.Chat.
 	// Since we can't redirect the goopenai client's base URL without package internals,
 	// we just verify noopAIChatter works and openaiChatter construction is valid.
-	client := openai.NewClient("fake-key", "gpt-4o-mini", 16, "be helpful")
+	client := openai.NewClient("fake-key", "gpt-4o-mini", 16, "be helpful", "")
 	chatter := &openaiChatter{client: client}
 	// The call will fail because there is no real OpenAI server, but we verify
 	// that the error comes from the HTTP layer, not from our code.

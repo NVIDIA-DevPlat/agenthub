@@ -49,7 +49,7 @@ func TestMockCompleterImplementsCompleter(t *testing.T) {
 
 func TestNewClientDoesNotPanic(t *testing.T) {
 	// Verify constructor doesn't panic; no live API call is made.
-	c := NewClient("test-key", "gpt-4o-mini", 1024, "system prompt")
+	c := NewClient("test-key", "gpt-4o-mini", 1024, "system prompt", "")
 	require.NotNil(t, c)
 	require.Equal(t, "gpt-4o-mini", c.model)
 	require.Equal(t, 1024, c.maxTokens)

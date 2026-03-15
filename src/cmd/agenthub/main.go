@@ -194,7 +194,7 @@ func cmdServe(_ []string) error {
 		var aiChat islack.AIChatter
 		if openaiKey != "" {
 			aiChat = &openaiChatter{
-				client: openai.NewClient(openaiKey, cfg.OpenAI.Model, cfg.OpenAI.MaxTokens, cfg.OpenAI.SystemPrompt),
+				client: openai.NewClient(openaiKey, cfg.OpenAI.Model, cfg.OpenAI.MaxTokens, cfg.OpenAI.SystemPrompt, cfg.OpenAI.BaseURL),
 			}
 		} else {
 			aiChat = &noopAIChatter{}

@@ -31,10 +31,16 @@ type Client struct {
 	systemPrompt string
 }
 
-// NewClient creates a new OpenAI Client.
-func NewClient(apiKey, model string, maxTokens int, systemPrompt string) *Client {
+// NewClient creates a new OpenAI-compatible Client.
+// If baseURL is non-empty it overrides the default api.openai.com endpoint,
+// allowing any OpenAI-compatible API (NVIDIA Inference, etc.) to be used.
+func NewClient(apiKey, model string, maxTokens int, systemPrompt string, baseURL string) *Client {
+	cfg := goopenai.DefaultConfig(apiKey)
+	if baseURL != "" {
+		cfg.BaseURL = baseURL
+	}
 	return &Client{
-		client:       goopenai.NewClient(apiKey),
+		client:       goopenai.NewClientWithConfig(cfg),
 		model:        model,
 		maxTokens:    maxTokens,
 		systemPrompt: systemPrompt,
