@@ -100,7 +100,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if s.announcer != nil && s.announceChannel != "" {
 		msg := fmt.Sprintf(":robot_face: New agent *%s* has been registered and is ready for tasks!", req.Name)
 		if s.publicURL != "" {
-			msg += fmt.Sprintf("\n_Dashboard: %s/admin/bots_", s.publicURL)
+			msg += fmt.Sprintf("\n<%s/admin/bots|View dashboard>", s.publicURL)
 		}
 		_ = s.announcer.PostMessage(r.Context(), s.announceChannel, msg)
 	}
