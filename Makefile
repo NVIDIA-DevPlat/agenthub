@@ -1,6 +1,6 @@
 # Makefile for agenthub
 
-.PHONY: all deps build install test test-cover test-integration fmt lint setup clean help
+.PHONY: all deps build install test test-cover test-integration fmt lint setup clean release release-minor release-major help
 
 # Default target
 all: build
@@ -185,6 +185,18 @@ setup: ensure-go
 	$(GO) run ./src/cmd/agenthub/... setup
 
 # ── Housekeeping ──────────────────────────────────────────────────────────────
+
+## release: Bump patch version, tag, and push to trigger GitHub Actions release build
+release:
+	@bash scripts/release.sh patch
+
+## release-minor: Bump minor version and release
+release-minor:
+	@bash scripts/release.sh minor
+
+## release-major: Bump major version and release
+release-major:
+	@bash scripts/release.sh major
 
 ## clean: Remove build artifacts (keeps downloaded deps)
 clean:
