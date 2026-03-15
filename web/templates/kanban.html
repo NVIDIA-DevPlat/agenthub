@@ -41,7 +41,7 @@
         <div class="kanban-card"
              draggable="true"
              data-id="{{.ID}}"
-             data-status="{{$.Status}}"
+             data-status="{{.Status}}"
              hx-get="/admin/kanban/tasks/{{.ID}}"
              hx-target="#task-panel-inner"
              hx-swap="innerHTML"
