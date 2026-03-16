@@ -12,11 +12,11 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/NVIDIA-DevPlat/agenthub/src/internal/dolt"
@@ -48,12 +48,23 @@ type InboxMessage struct {
 type Inbox struct {
 	mu     sync.Mutex
 	queues map[string][]*InboxMessage
-	seq    atomic.Uint64
 	db     InboxDB // optional; set via SetDB
 }
 
 func newInbox() *Inbox {
 	return &Inbox{queues: make(map[string][]*InboxMessage)}
+}
+
+// newMsgID returns a collision-resistant message ID (msg-<8 hex chars>).
+// Using random IDs prevents primary-key collisions when the server restarts
+// and the in-memory sequence counter resets to zero.
+func newMsgID() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Extremely unlikely; fall back to time-based suffix.
+		return fmt.Sprintf("msg-%x", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("msg-%x", b)
 }
 
 // SetDB wires an optional database backend for durable message storage.
@@ -71,9 +82,8 @@ func (b *Inbox) Enqueue(botName, from, channel, text string) string {
 // EnqueueWithContext adds a message with an optional TaskContext to botName's queue
 // and returns the new message ID.
 func (b *Inbox) EnqueueWithContext(botName, from, channel, text string, tc *TaskContext) string {
-	n := b.seq.Add(1)
 	msg := &InboxMessage{
-		ID:          fmt.Sprintf("msg-%d", n),
+		ID:          newMsgID(),
 		From:        from,
 		Channel:     channel,
 		Text:        text,
